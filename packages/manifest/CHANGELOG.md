@@ -1,5 +1,14 @@
 # manifest
 
+## 6.12.1
+
+### Patch Changes
+
+- 060db8f: Stop a wrong or revoked agent key from hammering the database and flooding the logs. Every request bearing a bad `mnfst_` key used to run a fresh indexed DB lookup and emit a warning, so one misconfigured agent in a retry loop sustained DB load and log noise indefinitely. Rejected keys are now cached for 30s (cleared the moment a key is created or rotated), collapsing a storm to one lookup and one log line per window. Separately, the dashboard live-update stream (`/api/v1/events`) no longer counts against the global rate limiter, so heavy dashboard use can't trip a 429 that severs the stream.
+- bc292b4: Stop a slow memory climb on long-running servers. The global dashboard response cache used cache-manager's default in-memory store, which has no size limit and only drops entries when their exact URL is requested again. High-cardinality dashboard URLs (filters, cursors, time ranges) piled up for the life of the process. It now uses a bounded LRU store with a hard entry cap plus an active sweep of expired entries. Three proxy session caches (Anthropic thinking blocks, Gemini thought signatures, DeepSeek reasoning content) were also uncapped and now evict their oldest entries once a ceiling is reached.
+- 4c7d19e: OpenCode Go and Zen model discovery now use the models.dev catalog first, and manual refreshes refresh the models.dev cache before OpenCode Go falls back to its docs catalog.
+- 26be5cc: Stop rolling deploys from dropping requests. During a deploy the old replicas got SIGTERM and closed their socket immediately while the Railway edge was still routing to them, so a chunk of requests failed for the length of the deploy window. The server now drains on SIGTERM: the health probe at /api/v1/health reports 503 so the edge deregisters the replica, and the process keeps serving for SHUTDOWN_DRAIN_MS (default 10s) before closing connections. railway.toml gains overlapSeconds and drainingSeconds so the new deployment overlaps the old one and the drain finishes before SIGKILL.
+
 ## 6.12.0
 
 ### Minor Changes
