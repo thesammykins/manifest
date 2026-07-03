@@ -37,8 +37,8 @@ const localDayStart = (iso: string) => {
   const d = new Date(iso);
   return fmtLocal(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
 };
-const localHourStart = (iso: string) => {
-  const d = new Date(iso);
+const localHourStart = (instant: string | Date) => {
+  const d = typeof instant === 'string' ? new Date(instant) : instant;
   return fmtLocal(new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() - 1));
 };
 
@@ -159,7 +159,9 @@ describe('NotificationCronService — edge cases', () => {
       // Start 1s before an hour boundary so the FIRST computePeriodBoundaries
       // (inside checkThresholds, line 63) sees 11:00 as the previous-hour start.
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T11:59:59Z'));
+      const beforeBoundary = new Date(2026, 5, 15, 11, 59, 59);
+      const afterBoundary = new Date(2026, 5, 15, 12, 0, 1);
+      jest.setSystemTime(beforeBoundary);
 
       const hourRule = { ...baseRule, period: 'hour' as const };
       mockGetAllActiveRules.mockResolvedValue([hourRule]);
@@ -168,7 +170,7 @@ describe('NotificationCronService — edge cases', () => {
       // computePeriodBoundaries(). After advance, "previous hour" rolls forward,
       // so periodStart shifts to the new hour.
       mockGetConsumption.mockImplementation(async () => {
-        jest.setSystemTime(new Date('2026-06-15T12:00:01Z'));
+        jest.setSystemTime(afterBoundary);
         return 150_000;
       });
 
@@ -184,9 +186,9 @@ describe('NotificationCronService — edge cases', () => {
       // When the source is refactored to capture periodStart once (e.g. pass it
       // from checkThresholds into evaluateRule, or use a fixed epoch-modulo
       // derivation), update these expectations to equality.
-      expect(consumptionPeriodStart).toBe(localHourStart('2026-06-15T11:59:59Z'));
-      expect(dedupPeriodStart).toBe(localHourStart('2026-06-15T12:00:01Z'));
-      expect(insertedPeriodStart).toBe(localHourStart('2026-06-15T12:00:01Z'));
+      expect(consumptionPeriodStart).toBe(localHourStart(beforeBoundary));
+      expect(dedupPeriodStart).toBe(localHourStart(afterBoundary));
+      expect(insertedPeriodStart).toBe(localHourStart(afterBoundary));
       expect(dedupPeriodStart).not.toBe(consumptionPeriodStart);
     });
   });

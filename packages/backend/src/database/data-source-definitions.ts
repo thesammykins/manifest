@@ -24,6 +24,7 @@ import { PlaygroundColumn } from '../entities/playground-column.entity';
 import { ReasoningContentCacheEntry } from '../entities/reasoning-content-cache-entry.entity';
 import { AgentEnabledProvider } from '../entities/agent-enabled-provider.entity';
 import { ExposedModelRoute } from '../entities/exposed-model-route.entity';
+import { PublicErrorPage } from '../entities/public-error-page.entity';
 import { InitialSchema1771464895790 } from './migrations/1771464895790-InitialSchema';
 import { HashApiKeys1771500000000 } from './migrations/1771500000000-HashApiKeys';
 import { ModelPricingImprovements1771600000000 } from './migrations/1771600000000-ModelPricingImprovements';
@@ -130,6 +131,8 @@ import { AddCrossTenantErrorTimestampIndex1795100000000 } from './migrations/179
 import { AddExposedModelRoutes1795200000000 } from './migrations/1795200000000-AddExposedModelRoutes';
 import { AddAutofixWaitlist1796000000000 } from './migrations/1796000000000-AddAutofixWaitlist';
 import { RemoveMessageRecording1795000000000 } from './migrations/1795000000000-RemoveMessageRecording';
+import { AddPublicErrorPages1797000000000 } from './migrations/1797000000000-AddPublicErrorPages';
+import { AddErrorClassification1798000000000 } from './migrations/1798000000000-AddErrorClassification';
 
 export const entities = [
   AgentMessage,
@@ -153,6 +156,7 @@ export const entities = [
   AgentEnabledProvider,
   ExposedModelRoute,
   BackfillState,
+  PublicErrorPage,
 ];
 
 export const migrations = [
@@ -262,4 +266,6 @@ export const migrations = [
   AddCrossTenantErrorTimestampIndex1795100000000,
   AddExposedModelRoutes1795200000000,
   AddAutofixWaitlist1796000000000,
+  AddPublicErrorPages1797000000000,
+  AddErrorClassification1798000000000,
 ];
