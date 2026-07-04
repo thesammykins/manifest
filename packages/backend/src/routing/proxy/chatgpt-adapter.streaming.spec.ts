@@ -54,6 +54,13 @@ function argumentDeltas(frames: string | null): string[] {
   });
 }
 
+function finalFinishReason(frames: string | null): unknown {
+  const parsed = parseFrames(frames);
+  const last = parsed[parsed.length - 1];
+  const choices = last?.choices as Array<Record<string, unknown>> | undefined;
+  return choices?.[0]?.finish_reason;
+}
+
 describe('chatgpt-adapter streaming: truncated tool-call argument JSON', () => {
   describe('transformResponsesStreamChunk forwards partial deltas verbatim', () => {
     it('forwards an incomplete JSON argument fragment unchanged on a single delta', () => {
@@ -375,6 +382,44 @@ describe('chatgpt-adapter streaming: truncated tool-call argument JSON', () => {
       const args = argumentDeltas(events).join('');
       expect(args).toBe('{"pattern":"**/*.ts"}');
       expect(JSON.parse(args)).toEqual({ pattern: '**/*.ts' });
+    });
+
+    it('keeps tool_calls finish reason when response.completed omits output', () => {
+      const transformer = createChatGptStreamTransformer('gpt-5.5');
+      const added = transformer.transform(
+        'event: response.output_item.added\ndata: {"output_index":0,"item":{"type":"function_call","call_id":"call_read","name":"read_executed_shell_command_output"}}',
+      );
+      const delta = transformer.transform(
+        'event: response.function_call_arguments.delta\ndata: {"output_index":0,"delta":"{\\"id\\":\\"call_123\\"}"}',
+      );
+      const completed = transformer.transform(
+        `event: response.completed\ndata: ${JSON.stringify({
+          response: {
+            usage: { input_tokens: 7, output_tokens: 3, total_tokens: 10 },
+          },
+        })}`,
+      );
+
+      expect(argumentDeltas(`${added ?? ''}${delta ?? ''}${completed ?? ''}`).join('')).toBe(
+        '{"id":"call_123"}',
+      );
+      expect(finalFinishReason(completed)).toBe('tool_calls');
+      expect(completed).toContain('data: [DONE]');
+    });
+
+    it('synthetically finalizes an unterminated tool stream as tool_calls', () => {
+      const transformer = createChatGptStreamTransformer('gpt-5.5');
+      const added = transformer.transform(
+        'event: response.output_item.added\ndata: {"output_index":0,"item":{"type":"function_call","call_id":"call_read","name":"read_executed_shell_command_output"}}',
+      );
+      const delta = transformer.transform(
+        'event: response.function_call_arguments.delta\ndata: {"output_index":0,"delta":"{\\"id\\":\\"call_123\\"}"}',
+      );
+      const trailing = transformer.finalize();
+
+      expect(argumentDeltas(`${added ?? ''}${delta ?? ''}`).join('')).toBe('{"id":"call_123"}');
+      expect(finalFinishReason(trailing)).toBe('tool_calls');
+      expect(trailing).toContain('data: [DONE]');
     });
   });
 });

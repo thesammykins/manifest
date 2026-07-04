@@ -620,7 +620,11 @@ export function createChatGptStreamTransformer(model: string): ChatGptStreamTran
         terminalSeen = true;
         const data = safeParse(dataStr);
         const response = isObjectRecord(data?.response) ? data.response : undefined;
-        return `${flushCompletedOutput(response)}${handleCompletedEvent(dataStr, model)}`;
+        return `${flushCompletedOutput(response)}${handleCompletedEvent(
+          dataStr,
+          model,
+          toolCalls.size > 0,
+        )}`;
       }
 
       if (eventType === 'response.incomplete') {
@@ -637,23 +641,29 @@ export function createChatGptStreamTransformer(model: string): ChatGptStreamTran
     },
 
     finalize(): string | null {
-      return terminalSeen ? null : formatSyntheticCompletedEvent(model);
+      return terminalSeen
+        ? null
+        : formatSyntheticCompletedEvent(model, toolCalls.size > 0 ? 'tool_calls' : 'stop');
     },
   };
 }
 
-function formatSyntheticCompletedEvent(model: string): string {
-  const finish = formatSSE({ delta: {}, finish_reason: 'stop' }, model);
+function formatSyntheticCompletedEvent(model: string, finishReason = 'stop'): string {
+  const finish = formatSSE({ delta: {}, finish_reason: finishReason }, model);
   return `${finish}data: [DONE]\n\n`;
 }
 
-function handleCompletedEvent(dataStr: string, model: string): string {
+function handleCompletedEvent(
+  dataStr: string,
+  model: string,
+  hasStreamedToolCalls = false,
+): string {
   const data = safeParse(dataStr);
   const response = isObjectRecord(data?.response) ? data.response : undefined;
   const responseOutput = responseOutputItems(response);
   const hasFunctionCalls = responseOutput.some((item) => item.type === 'function_call');
   const finish = formatSSE(
-    { delta: {}, finish_reason: hasFunctionCalls ? 'tool_calls' : 'stop' },
+    { delta: {}, finish_reason: hasFunctionCalls || hasStreamedToolCalls ? 'tool_calls' : 'stop' },
     model,
     extractResponseUsage(response),
   );
