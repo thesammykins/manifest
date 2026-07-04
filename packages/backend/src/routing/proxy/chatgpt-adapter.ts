@@ -116,10 +116,19 @@ export function toResponsesRequest(
     request.prompt_cache_key = body.prompt_cache_key;
   }
 
+  const effort = firstString(body.reasoning_effort, body.reasoningEffort);
+  const summary = firstString(body.reasoning_summary, body.reasoningSummary);
   if (isObjectRecord(body.reasoning)) {
-    request.reasoning = body.reasoning;
-  } else if (typeof body.reasoning_effort === 'string' && body.reasoning_effort) {
-    request.reasoning = { effort: body.reasoning_effort };
+    request.reasoning = {
+      ...body.reasoning,
+      ...(!('effort' in body.reasoning) && effort ? { effort } : {}),
+      ...(!('summary' in body.reasoning) && summary ? { summary } : {}),
+    };
+  } else if (effort || summary) {
+    request.reasoning = {
+      ...(effort ? { effort } : {}),
+      ...(summary ? { summary } : {}),
+    };
   }
 
   if (isObjectRecord(body.text)) {
@@ -176,6 +185,10 @@ function isReasoningDeltaEvent(eventType: string): boolean {
 
 function reasoningDeltaText(data: Record<string, unknown>): string {
   return typeof data.delta === 'string' ? data.delta : '';
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === 'string' && value.length > 0);
 }
 
 /* ── Non-streaming response conversion ── */

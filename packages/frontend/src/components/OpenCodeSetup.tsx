@@ -55,7 +55,7 @@ function openCodeModels(modelAliases?: ModelAlias[]): Record<string, unknown> {
     const baseEntry = models[alias.model_id];
     if (!baseEntry) continue;
 
-    const variants: Record<string, { reasoningEffort: string }> = {};
+    const variants: Record<string, { reasoningEffort: string; reasoningSummary: 'auto' }> = {};
     const routeKey = directRouteKey(alias);
     for (const candidate of aliases) {
       if (candidate === alias || candidate.source_kind !== 'direct' || !candidate.route) {
@@ -69,7 +69,7 @@ function openCodeModels(modelAliases?: ModelAlias[]): Record<string, unknown> {
       const effort = extractReasoningEffort(candidate.request_params);
       if (effort !== suffix.effort) continue;
       if (byId.get(suffix.baseModelId.toLowerCase()) !== alias) continue;
-      variants[effort] = { reasoningEffort: effort };
+      variants[effort] = { reasoningEffort: effort, reasoningSummary: 'auto' };
       collapsed.add(candidate.model_id);
     }
 

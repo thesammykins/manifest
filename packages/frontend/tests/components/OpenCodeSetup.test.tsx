@@ -131,8 +131,8 @@ describe('OpenCodeSetup', () => {
     expect(models['openai-subscription/gpt-5.5']).toMatchObject({
       name: 'GPT 5.5',
       variants: {
-        high: { reasoningEffort: 'high' },
-        low: { reasoningEffort: 'low' },
+        high: { reasoningEffort: 'high', reasoningSummary: 'auto' },
+        low: { reasoningEffort: 'low', reasoningSummary: 'auto' },
       },
     });
     expect(models['openai-subscription/gpt-5.5-high']).toBeUndefined();
