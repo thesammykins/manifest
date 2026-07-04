@@ -743,7 +743,6 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
   let hasFunctionCalls = false;
   let finishReasonOverride: string | undefined;
   let reasoningContent = '';
-  let sawReasoningTextDelta = false;
 
   const upsertToolCall = (
     idx: number,
@@ -773,9 +772,7 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
     hasFunctionCalls = output.some((item) => item.type === 'function_call');
     if (hasResponseOutput(response)) {
       const outputReasoning = reasoningContentFromOutput(output);
-      if (outputReasoning || !sawReasoningTextDelta) {
-        reasoningContent = outputReasoning;
-      }
+      if (outputReasoning) reasoningContent = outputReasoning;
     }
     output.forEach((item, outputIndex) => {
       if (!isFunctionCallItem(item)) return;
@@ -802,7 +799,6 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
     } else if (eventType === 'response.output_text.delta') {
       text += typeof data.delta === 'string' ? data.delta : '';
     } else if (isReasoningDeltaEvent(eventType)) {
-      if (isReasoningTextDeltaEvent(eventType)) sawReasoningTextDelta = true;
       reasoningContent += reasoningDeltaText(data);
     } else if (eventType === 'response.output_item.added') {
       const item = isObjectRecord(data.item) ? data.item : undefined;
@@ -836,9 +832,7 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
       finishReasonOverride = incompleteFinishReason(response);
       if (hasResponseOutput(response)) {
         const outputReasoning = reasoningContentFromOutput(responseOutputItems(response));
-        if (outputReasoning || !sawReasoningTextDelta) {
-          reasoningContent = outputReasoning;
-        }
+        if (outputReasoning) reasoningContent = outputReasoning;
       }
     }
   }
