@@ -348,6 +348,71 @@ describe('ProxyController', () => {
     expect(providerParamSpecs.getSpecs).toHaveBeenCalledWith('openai', 'api_key', 'gpt-5');
   });
 
+  it('should expose reasoning suffix variants alongside canonical model ids', async () => {
+    modelDiscovery.getModelsForAgent.mockResolvedValue([
+      makeDiscoveredModel({
+        id: 'gpt-5.5',
+        provider: 'openai',
+        authType: 'subscription',
+      }),
+      makeDiscoveredModel({
+        id: 'deepseek-v4-flash',
+        provider: 'deepseek',
+        authType: 'api_key',
+      }),
+    ]);
+    providerParamSpecs.getSpecs.mockImplementation(
+      async (provider: string, _authType: string, model: string) => {
+        if (provider === 'deepseek') {
+          return [
+            {
+              provider,
+              authType: 'api_key',
+              model,
+              path: 'reasoning_effort',
+              type: 'enum',
+              label: 'Reasoning effort',
+              description: 'Controls reasoning effort.',
+              group: 'reasoning',
+              values: ['high', 'max'],
+              default: 'high',
+            },
+          ];
+        }
+        return [
+          {
+            provider,
+            authType: 'subscription',
+            model,
+            path: 'reasoning.effort',
+            type: 'enum',
+            label: 'Reasoning effort',
+            description: 'Controls reasoning effort.',
+            group: 'reasoning',
+            values: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+            default: 'medium',
+          },
+        ];
+      },
+    );
+
+    const result = await controller.models(mockRequest({}) as never);
+    const ids = result.data.map((model) => model.id);
+
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'openai/gpt-5.5-subscription',
+        'openai/gpt-5.5-subscription-low',
+        'openai/gpt-5.5-subscription-xhigh',
+        'deepseek/deepseek-v4-flash',
+        'deepseek/deepseek-v4-flash-max',
+      ]),
+    );
+    expect(result.data.find((model) => model.id.endsWith('-low'))).not.toHaveProperty(
+      'manifest_params',
+    );
+  });
+
   it('should return JSON response for non-streaming OpenAI provider', async () => {
     const responseBody = { choices: [{ message: { content: 'hello' } }] };
     const mockProviderResp = new Response(JSON.stringify(responseBody), {

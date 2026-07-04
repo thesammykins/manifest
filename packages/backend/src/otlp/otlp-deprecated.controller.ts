@@ -1,4 +1,4 @@
-import { Controller, All, Post, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, All, HttpCode, HttpStatus } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 
 /**
@@ -18,21 +18,6 @@ const GONE_RESPONSE = {
       'See https://manifest.build/docs/migration for details.',
     type: 'gone',
     status: 410,
-  },
-};
-
-/**
- * Structured 404 response for /chat/completions (missing /v1 prefix).
- * The OpenAI SDK appends /chat/completions to the base URL, so users who
- * set baseURL without the /v1 suffix hit this path.
- */
-const WRONG_PATH_RESPONSE = {
-  error: {
-    message:
-      'Use /v1/chat/completions (not /chat/completions). ' +
-      'Set your baseURL to https://app.manifest.build/v1',
-    type: 'invalid_request_error',
-    status: 404,
   },
 };
 
@@ -108,13 +93,5 @@ export class OtlpDeprecatedController {
   @HttpCode(HttpStatus.GONE)
   strippedLogs() {
     return GONE_RESPONSE;
-  }
-
-  // --- Wrong path for chat completions (missing /v1 prefix) ---
-
-  @Post('chat/completions')
-  @HttpCode(HttpStatus.NOT_FOUND)
-  wrongChatPath() {
-    return WRONG_PATH_RESPONSE;
   }
 }

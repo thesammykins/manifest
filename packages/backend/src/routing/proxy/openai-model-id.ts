@@ -3,6 +3,34 @@ import type { DiscoveredModel } from '../../model-discovery/model-fetcher';
 
 export const OPENAI_MODEL_ID_AUTO = 'auto';
 const SUBSCRIPTION_MODEL_SUFFIX = '-subscription';
+const REASONING_EFFORT_SUFFIXES = [
+  'minimal',
+  'none',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+const REASONING_EFFORT_SUFFIX_SET = new Set<string>(REASONING_EFFORT_SUFFIXES);
+
+export function parseReasoningSuffix(
+  modelId: string,
+): { baseModelId: string; effort: string } | null {
+  const lower = modelId.toLowerCase();
+  for (const effort of REASONING_EFFORT_SUFFIXES) {
+    const suffix = `-${effort}`;
+    if (!lower.endsWith(suffix)) continue;
+    const baseModelId = modelId.slice(0, -suffix.length);
+    if (!baseModelId) return null;
+    return { baseModelId, effort };
+  }
+  return null;
+}
+
+export function isReasoningEffortSuffix(value: string): boolean {
+  return REASONING_EFFORT_SUFFIX_SET.has(value.toLowerCase());
+}
 
 export function openAiModelId(model: DiscoveredModel): string {
   const provider = model.provider.toLowerCase();

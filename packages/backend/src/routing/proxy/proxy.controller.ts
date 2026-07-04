@@ -41,7 +41,7 @@ import { formatManifestError } from '../../common/errors/error-codes';
 import type { ProxyApiMode } from './proxy-types';
 import { ResponsesSseError } from './chatgpt-adapter';
 import { redactInlineImageDataUrls } from './inline-image-redaction';
-import { openAiModelId } from './openai-model-id';
+import { isReasoningEffortSuffix, openAiModelId } from './openai-model-id';
 import type { ModelRoute, ProviderParamSpec } from 'manifest-shared';
 
 const MAX_SEEN_TENANTS = 10_000;
@@ -71,7 +71,7 @@ interface OpenAiModelList {
   data: OpenAiModelObject[];
 }
 
-@Controller('v1')
+@Controller(['v1', ''])
 @Public()
 @UseGuards(AgentKeyAuthGuard)
 @UseFilters(ProxyExceptionFilter)
@@ -146,23 +146,23 @@ export class ProxyController {
       const key = id.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
+      const route = model.authType
+        ? {
+            provider: model.provider,
+            authType: model.authType,
+            model: model.id,
+          }
+        : null;
+      const params = route ? await this.manifestParamsForRoute(route) : [];
       const row: OpenAiModelObject = {
         id,
         object: 'model',
         created: MODEL_CREATED_UNKNOWN,
         owned_by: model.provider,
       };
-      if (includeManifestParams && model.authType) {
-        addManifestParams(
-          row,
-          await this.manifestParamsForRoute({
-            provider: model.provider,
-            authType: model.authType,
-            model: model.id,
-          }),
-        );
-      }
+      if (includeManifestParams) addManifestParams(row, params);
       data.push(row);
+      addReasoningVariantRows(data, seen, row, params);
     }
 
     return {
@@ -460,6 +460,30 @@ function wantsManifestParams(req: Request): boolean {
 
 function addManifestParams(row: OpenAiModelObject, params: ManifestModelParam[]): void {
   if (params.length > 0) row.manifest_params = params;
+}
+
+function addReasoningVariantRows(
+  data: OpenAiModelObject[],
+  seen: Set<string>,
+  base: OpenAiModelObject,
+  params: ManifestModelParam[],
+): void {
+  const efforts = params
+    .flatMap((param) => param.values)
+    .filter((value) => isReasoningEffortSuffix(value));
+  for (const effort of [...new Set(efforts)]) {
+    const id = `${base.id}-${effort.toLowerCase()}`;
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    data.push({
+      id,
+      object: 'model',
+      created: base.created,
+      owned_by: base.owned_by,
+      type: base.type,
+    });
+  }
 }
 
 function isReasoningEnumSpec(spec: ProviderParamSpec): boolean {

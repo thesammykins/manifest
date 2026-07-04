@@ -125,6 +125,27 @@ describe('Proxy E2E — /v1/models', () => {
   });
 });
 
+describe('Proxy E2E — root OpenAI-compatible aliases', () => {
+  it('serves /models for clients whose base URL omits /v1', async () => {
+    const res = await bearer(api().get('/models')).expect(200);
+
+    expect(res.body.data).toEqual(
+      expect.arrayContaining([
+        { id: 'openai/gpt-4o-mini', object: 'model', created: 0, owned_by: 'openai' },
+      ]),
+    );
+  });
+
+  it('routes /chat/completions through proxy auth instead of the old wrong-path 404', async () => {
+    const res = await api()
+      .post('/chat/completions')
+      .send({ messages: [{ role: 'user', content: 'hello' }] })
+      .expect(401);
+
+    expect(res.body.error.type).toBe('auth_error');
+  });
+});
+
 describe('Proxy E2E — /v1/chat/completions', () => {
   // Supertest doesn't set Accept by default, and these requests omit
   // `stream: true`, so the exception filter classifies them as non-chat

@@ -104,22 +104,4 @@ describe('OtlpDeprecatedController', () => {
       expect(controller.strippedLogs()).toEqual(expectedGone);
     });
   });
-
-  describe('wrong chat completions path', () => {
-    it('returns 404 with redirect hint', () => {
-      const result = controller.wrongChatPath();
-      expect(result.error.status).toBe(404);
-      expect(result.error.message).toContain('/v1/chat/completions');
-    });
-
-    it('has invalid_request_error type', () => {
-      const result = controller.wrongChatPath();
-      expect(result.error.type).toBe('invalid_request_error');
-    });
-
-    it('includes the correct baseURL hint', () => {
-      const result = controller.wrongChatPath();
-      expect(result.error.message).toContain('https://app.manifest.build/v1');
-    });
-  });
 });

@@ -293,6 +293,42 @@ describe('ModelAliasService', () => {
     }
   });
 
+  it('supports max reasoning suffixes for raw direct models', async () => {
+    discoveryService.getModelsForAgent.mockResolvedValue([
+      {
+        id: 'deepseek-v4-flash',
+        displayName: 'DeepSeek V4 Flash',
+        provider: 'deepseek',
+        authType: 'api_key',
+      },
+    ] as never);
+    providerParamSpecs.getSpecs.mockResolvedValue([
+      {
+        provider: 'deepseek',
+        authType: 'api_key',
+        model: 'deepseek-v4-flash',
+        path: 'reasoning_effort',
+        label: 'Reasoning effort',
+        description: '',
+        group: 'reasoning',
+        type: 'enum',
+        values: ['high', 'max'],
+      } as ProviderParamSpec,
+    ]);
+
+    const result = await service.resolveModelRequest(
+      'agent-1',
+      'tenant-1',
+      'deepseek/deepseek-v4-flash-max',
+    );
+
+    expect(result.kind).toBe('resolved');
+    if (result.kind === 'resolved') {
+      expect(result.resolved.route?.model).toBe('deepseek-v4-flash');
+      expect(result.requestParams).toEqual({ reasoning_effort: 'max' });
+    }
+  });
+
   it('supports upstream canonical subscription model ids as raw direct routes', async () => {
     discoveryService.getModelsForAgent.mockResolvedValue([
       {

@@ -32,7 +32,7 @@ import { HeaderTierService } from '../header-tiers/header-tier.service';
 import { ProviderKeyService } from '../routing-core/provider-key.service';
 import { ProviderParamSpecService } from '../routing-core/provider-param-spec.service';
 import { effectiveRoutesForResponseMode } from '../routing-core/response-mode-guard';
-import { openAiModelId } from '../proxy/openai-model-id';
+import { openAiModelId, parseReasoningSuffix } from '../proxy/openai-model-id';
 import {
   CreateModelAliasDto,
   MAX_MODEL_ALIAS_DISPLAY_NAME_LENGTH,
@@ -42,7 +42,6 @@ import {
 
 const RESERVED_MODEL_IDS = new Set(['auto', 'manifest/auto']);
 const MODEL_ID_RE = /^[^\s\x00-\x1F\x7F]+$/;
-const REASONING_EFFORT_SUFFIXES = ['minimal', 'none', 'low', 'medium', 'high', 'xhigh'] as const;
 
 export type ModelAliasResolution =
   | { kind: 'auto' }
@@ -587,18 +586,6 @@ function normalizeRequestParams(value: unknown): RequestParamDefaults | null {
 function authModeSlug(authType: AuthType): string {
   if (authType === 'api_key') return 'api';
   return authType;
-}
-
-function parseReasoningSuffix(modelId: string): { baseModelId: string; effort: string } | null {
-  const lower = modelId.toLowerCase();
-  for (const effort of REASONING_EFFORT_SUFFIXES) {
-    const suffix = `-${effort}`;
-    if (!lower.endsWith(suffix)) continue;
-    const baseModelId = modelId.slice(0, -suffix.length);
-    if (!baseModelId) return null;
-    return { baseModelId, effort };
-  }
-  return null;
 }
 
 function normalizeReasoningEffort(effort: string): string {
