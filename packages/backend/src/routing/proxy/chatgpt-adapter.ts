@@ -119,15 +119,17 @@ export function toResponsesRequest(
   const effort = firstString(body.reasoning_effort, body.reasoningEffort);
   const summary = firstString(body.reasoning_summary, body.reasoningSummary);
   if (isObjectRecord(body.reasoning)) {
-    request.reasoning = {
-      ...body.reasoning,
-      ...(!('effort' in body.reasoning) && effort ? { effort } : {}),
-      ...(!('summary' in body.reasoning) && summary ? { summary } : {}),
-    };
+    const reasoning = { ...body.reasoning };
+    const explicitEffort = firstString(reasoning.effort);
+    const summaryDefault = summary ?? (explicitEffort || effort ? 'auto' : undefined);
+    if (!('effort' in reasoning) && effort) reasoning.effort = effort;
+    if (!('summary' in reasoning) && summaryDefault) reasoning.summary = summaryDefault;
+    request.reasoning = reasoning;
   } else if (effort || summary) {
+    const summaryValue = summary ?? (effort ? 'auto' : undefined);
     request.reasoning = {
       ...(effort ? { effort } : {}),
-      ...(summary ? { summary } : {}),
+      ...(summaryValue ? { summary: summaryValue } : {}),
     };
   }
 
@@ -179,8 +181,13 @@ function reasoningContentFromOutput(output: Record<string, unknown>[]): string {
 function isReasoningDeltaEvent(eventType: string): boolean {
   return (
     eventType === 'response.reasoning_summary.delta' ||
-    eventType === 'response.reasoning_summary_text.delta'
+    eventType === 'response.reasoning_summary_text.delta' ||
+    isReasoningTextDeltaEvent(eventType)
   );
+}
+
+function isReasoningTextDeltaEvent(eventType: string): boolean {
+  return eventType === 'response.reasoning_text.delta';
 }
 
 function reasoningDeltaText(data: Record<string, unknown>): string {
@@ -736,6 +743,7 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
   let hasFunctionCalls = false;
   let finishReasonOverride: string | undefined;
   let reasoningContent = '';
+  let sawReasoningTextDelta = false;
 
   const upsertToolCall = (
     idx: number,
@@ -764,7 +772,10 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
     const output = responseOutputItems(response);
     hasFunctionCalls = output.some((item) => item.type === 'function_call');
     if (hasResponseOutput(response)) {
-      reasoningContent = reasoningContentFromOutput(output);
+      const outputReasoning = reasoningContentFromOutput(output);
+      if (outputReasoning || !sawReasoningTextDelta) {
+        reasoningContent = outputReasoning;
+      }
     }
     output.forEach((item, outputIndex) => {
       if (!isFunctionCallItem(item)) return;
@@ -791,6 +802,7 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
     } else if (eventType === 'response.output_text.delta') {
       text += typeof data.delta === 'string' ? data.delta : '';
     } else if (isReasoningDeltaEvent(eventType)) {
+      if (isReasoningTextDeltaEvent(eventType)) sawReasoningTextDelta = true;
       reasoningContent += reasoningDeltaText(data);
     } else if (eventType === 'response.output_item.added') {
       const item = isObjectRecord(data.item) ? data.item : undefined;
@@ -823,7 +835,10 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
       usage = extractResponseUsage(response) ?? usage;
       finishReasonOverride = incompleteFinishReason(response);
       if (hasResponseOutput(response)) {
-        reasoningContent = reasoningContentFromOutput(responseOutputItems(response));
+        const outputReasoning = reasoningContentFromOutput(responseOutputItems(response));
+        if (outputReasoning || !sawReasoningTextDelta) {
+          reasoningContent = outputReasoning;
+        }
       }
     }
   }

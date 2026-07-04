@@ -385,10 +385,15 @@ describe('chatgpt-adapter', () => {
       expect(empty.choices[0].delta).toEqual({ reasoning_content: '' });
     });
 
-    it('does not expose raw reasoning text deltas as summaries', () => {
+    it('converts raw reasoning text deltas into a Chat Completion reasoning_content delta', () => {
       const chunk = 'event: response.reasoning_text.delta\ndata: {"delta":"Private chain."}';
+      const parsed = parseFrame(transformResponsesStreamChunk(chunk, 'gpt-5.5'));
 
-      expect(transformResponsesStreamChunk(chunk, 'gpt-5.5')).toBeNull();
+      expect(parsed.choices[0]).toEqual({
+        index: 0,
+        delta: { reasoning_content: 'Private chain.' },
+        finish_reason: null,
+      });
     });
 
     it('returns null for malformed reasoning delta payloads', () => {
@@ -477,6 +482,21 @@ describe('chatgpt-adapter', () => {
 
       expect(message.content).toBe('Done.');
       expect(message.reasoning_content).toBe('I checked the constraints.');
+    });
+
+    it('collects raw reasoning text deltas when terminal output has no reasoning item', () => {
+      const sse = [
+        'event: response.reasoning_text.delta\ndata: {"delta":"Private "}',
+        'event: response.reasoning_text.delta\ndata: {"delta":"chain."}',
+        'event: response.output_text.delta\ndata: {"delta":"Done."}',
+        'event: response.completed\ndata: {"response":{"output":[{"type":"message"}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}',
+      ].join('\n\n');
+      const out = collectChatGptSseResponse(sse, 'gpt-5.5');
+      const choices = out.choices as Array<Record<string, unknown>>;
+      const message = choices[0].message as Record<string, unknown>;
+
+      expect(message.content).toBe('Done.');
+      expect(message.reasoning_content).toBe('Private chain.');
     });
 
     it('uses completed reasoning output as the authoritative non-streaming summary', () => {

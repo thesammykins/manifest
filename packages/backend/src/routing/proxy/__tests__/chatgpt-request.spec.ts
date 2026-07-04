@@ -26,7 +26,7 @@ describe('ChatGPT Adapter – toResponsesRequest', () => {
     expect(result.stream).toBe(false);
   });
 
-  it('maps flat reasoning_effort to Responses reasoning effort', () => {
+  it('maps flat reasoning_effort to Responses reasoning with summaries enabled', () => {
     const result = toResponsesRequest(
       {
         messages: [{ role: 'user', content: 'Hello world' }],
@@ -35,7 +35,7 @@ describe('ChatGPT Adapter – toResponsesRequest', () => {
       'gpt-5',
     );
 
-    expect(result.reasoning).toEqual({ effort: 'high' });
+    expect(result.reasoning).toEqual({ effort: 'high', summary: 'auto' });
   });
 
   it('maps OpenCode reasoning option names to Responses reasoning', () => {
@@ -75,6 +75,18 @@ describe('ChatGPT Adapter – toResponsesRequest', () => {
     );
 
     expect(result.reasoning).toEqual({ effort: 'high', summary: 'auto' });
+  });
+
+  it('defaults reasoning summaries when an explicit reasoning effort omits summary', () => {
+    const result = toResponsesRequest(
+      {
+        messages: [{ role: 'user', content: 'Hello world' }],
+        reasoning: { effort: 'medium' },
+      },
+      'gpt-5',
+    );
+
+    expect(result.reasoning).toEqual({ effort: 'medium', summary: 'auto' });
   });
 
   it('extracts system message as instructions', () => {
