@@ -14,6 +14,11 @@ describe('PiSetup', () => {
   it('renders a models.json block with enabled aliases', async () => {
     const aliases = [
       {
+        model_id: 'openai-subscription/gpt-5.5',
+        display_name: 'GPT 5.5',
+        enabled: true,
+      },
+      {
         model_id: 'openai-subscription/gpt-5.5-high',
         display_name: 'GPT 5.5 High',
         enabled: true,
@@ -39,6 +44,7 @@ describe('PiSetup', () => {
     expect(container.textContent).toContain('"apiKey": "mnfst_live..."');
     expect(container.textContent).toContain('"id": "auto"');
     expect(container.textContent).toContain('"id": "manifest/auto"');
+    expect(container.textContent).toContain('"id": "openai-subscription/gpt-5.5"');
     expect(container.textContent).toContain('"id": "openai-subscription/gpt-5.5-high"');
     expect(container.textContent).not.toContain('gpt-5.5-hidden');
 

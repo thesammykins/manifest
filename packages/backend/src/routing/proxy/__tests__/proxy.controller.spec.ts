@@ -61,6 +61,7 @@ function mockRequest(
   userId = 'user-1',
   headers: Record<string, string> = {},
   tenantId = 'tenant-1',
+  query: Record<string, string> = {},
 ) {
   return {
     ingestionContext: {
@@ -71,6 +72,7 @@ function mockRequest(
     },
     body,
     headers,
+    query,
     ip: '127.0.0.1',
   };
 }
@@ -123,6 +125,7 @@ describe('ProxyController', () => {
   };
   let mockPricingCache: { getByModel: jest.Mock };
   let modelDiscovery: { getModelsForAgent: jest.Mock };
+  let providerParamSpecs: { getSpecs: jest.Mock };
   let recorder: ProxyMessageRecorder;
 
   beforeEach(() => {
@@ -165,6 +168,9 @@ describe('ProxyController', () => {
     modelDiscovery = {
       getModelsForAgent: jest.fn().mockResolvedValue([]),
     };
+    providerParamSpecs = {
+      getSpecs: jest.fn().mockResolvedValue([]),
+    };
     const mockCustomProviders = {
       canonicalizeAgentMessageKeys: jest
         .fn()
@@ -196,6 +202,7 @@ describe('ProxyController', () => {
       new ReasoningContentCache(),
       modelAliasService as never,
       modelDiscovery as never,
+      providerParamSpecs as never,
     );
   });
 
@@ -225,6 +232,7 @@ describe('ProxyController', () => {
     });
     expect(modelAliasService.listEnabled).toHaveBeenCalledWith('agent-1');
     expect(modelDiscovery.getModelsForAgent).toHaveBeenCalledWith('tenant-1', 'agent-1');
+    expect(providerParamSpecs.getSpecs).not.toHaveBeenCalled();
   });
 
   it('should include aliases before authenticated agent models using provider-qualified ids', async () => {
@@ -295,6 +303,49 @@ describe('ProxyController', () => {
       ],
     });
     expect(modelAliasService.listEnabled).toHaveBeenCalledWith('agent-1');
+  });
+
+  it('should include Manifest reasoning params only when requested', async () => {
+    modelDiscovery.getModelsForAgent.mockResolvedValue([
+      makeDiscoveredModel({ id: 'gpt-5', provider: 'openai', authType: 'api_key' }),
+    ]);
+    providerParamSpecs.getSpecs.mockResolvedValue([
+      {
+        provider: 'openai',
+        authType: 'api_key',
+        model: 'gpt-5',
+        path: 'reasoning_effort',
+        type: 'enum',
+        label: 'Reasoning effort',
+        description: 'Controls reasoning effort.',
+        group: 'reasoning',
+        values: ['low', 'medium', 'high'],
+        default: 'medium',
+      },
+    ]);
+
+    await expect(
+      controller.models(
+        mockRequest({}, 'user-1', {}, 'tenant-1', { manifest_params: '1' }) as never,
+      ),
+    ).resolves.toEqual({
+      object: 'list',
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'openai/gpt-5',
+          manifest_params: [
+            {
+              category: 'reasoning',
+              path: 'reasoning_effort',
+              label: 'Reasoning effort',
+              values: ['low', 'medium', 'high'],
+              default: 'medium',
+            },
+          ],
+        }),
+      ]),
+    });
+    expect(providerParamSpecs.getSpecs).toHaveBeenCalledWith('openai', 'api_key', 'gpt-5');
   });
 
   it('should return JSON response for non-streaming OpenAI provider', async () => {

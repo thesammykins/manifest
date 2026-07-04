@@ -68,6 +68,22 @@ function discoveredModel(overrides: Partial<DiscoveredModel> = {}): DiscoveredMo
 
 const specCatalog: ProviderParamSpecCatalog = [
   {
+    provider: 'openai',
+    authType: 'api_key',
+    model: 'gpt-5',
+    params: [
+      {
+        path: 'reasoning_effort',
+        type: 'enum',
+        label: 'Reasoning effort',
+        description: 'Controls OpenAI reasoning effort.',
+        default: 'medium',
+        values: ['low', 'medium', 'high'],
+        group: 'reasoning',
+      },
+    ],
+  },
+  {
     provider: 'deepseek',
     authType: 'api_key',
     model: 'deepseek-v4-flash',
@@ -649,11 +665,21 @@ describe('ProxyService — orchestration', () => {
           authType: 'api_key',
           model: 'gpt-4o-mini',
           body: expect.objectContaining({ temperature: 0.2 }),
-          paramMergeContext: undefined,
+          paramMergeContext: {
+            agentId: 'agent-1',
+            scopeKey: 'direct-model:openai:api_key:gpt-4o-mini',
+            requestParams: undefined,
+          },
         }),
       );
-      expect(modelParamsService.get).not.toHaveBeenCalled();
-      expect(providerParamSpecs.getSpecs).not.toHaveBeenCalled();
+      expect(modelParamsService.get).toHaveBeenCalledWith(
+        'agent-1',
+        'direct-model:openai:api_key:gpt-4o-mini',
+        'openai',
+        'api_key',
+        'gpt-4o-mini',
+      );
+      expect(providerParamSpecs.getSpecs).toHaveBeenCalledWith('openai', 'api_key', 'gpt-4o-mini');
       expect(result.meta).toMatchObject({
         tier: 'direct',
         reason: 'direct',
@@ -662,6 +688,80 @@ describe('ProxyService — orchestration', () => {
         model: 'gpt-4o-mini',
       });
       expect(result.meta.request_params).toBeNull();
+    });
+
+    it('applies x-manifest-reasoning-effort to canonical direct model ids', async () => {
+      modelDiscovery.getModelsForAgent.mockResolvedValue([
+        discoveredModel({ id: 'gpt-5', provider: 'openai', authType: 'api_key' }),
+      ]);
+      fallbackService.tryForwardToProvider.mockResolvedValue({
+        response: okResponse(200),
+        isGoogle: false,
+        isAnthropic: false,
+        isChatGpt: false,
+      });
+
+      const result = await svc.proxyRequest(
+        baseOpts({
+          body: {
+            model: 'openai/gpt-5',
+            messages: [{ role: 'user', content: 'hi' }],
+          },
+          headers: { 'x-manifest-reasoning-effort': 'High' },
+        }),
+      );
+
+      expect(modelAliasService.requestParamsForReasoningEffort).toHaveBeenCalledWith(
+        { provider: 'openai', authType: 'api_key', model: 'gpt-5' },
+        'High',
+      );
+      expect(fallbackService.tryForwardToProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'openai',
+          authType: 'api_key',
+          model: 'gpt-5',
+          paramMergeContext: {
+            agentId: 'agent-1',
+            scopeKey: 'direct-model:openai:api_key:gpt-5',
+            requestParams: { reasoning_effort: 'high' },
+          },
+        }),
+      );
+      expect(result.meta.request_params).toEqual({ reasoning_effort: 'high' });
+    });
+
+    it('snapshots body reasoning params for canonical direct model ids', async () => {
+      modelDiscovery.getModelsForAgent.mockResolvedValue([
+        discoveredModel({ id: 'gpt-5', provider: 'openai', authType: 'api_key' }),
+      ]);
+      fallbackService.tryForwardToProvider.mockResolvedValue({
+        response: okResponse(200),
+        isGoogle: false,
+        isAnthropic: false,
+        isChatGpt: false,
+      });
+
+      const result = await svc.proxyRequest(
+        baseOpts({
+          body: {
+            model: 'openai/gpt-5',
+            messages: [{ role: 'user', content: 'hi' }],
+            reasoning_effort: 'low',
+          },
+        }),
+      );
+
+      expect(fallbackService.tryForwardToProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({ reasoning_effort: 'low' }),
+          paramMergeContext: {
+            agentId: 'agent-1',
+            scopeKey: 'direct-model:openai:api_key:gpt-5',
+            requestParams: undefined,
+          },
+        }),
+      );
+      expect(result.meta.request_params).toEqual({ reasoning_effort: 'low' });
     });
 
     it('falls back to legacy raw direct ids only after canonical lookup misses', async () => {

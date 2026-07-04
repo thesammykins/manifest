@@ -267,7 +267,7 @@ export class ProxyService {
       scopeKey: effectiveScopeKey,
       requestParams: routingDecision.requestParams,
     };
-    const effectiveParamMergeContext = explicitModelOverride ? undefined : paramMergeContext;
+    const effectiveParamMergeContext = paramMergeContext;
 
     // Snapshot of which known param keys are *effectively in play* for the
     // primary attempt. Stored on every `agent_messages` row recorded for
@@ -278,27 +278,23 @@ export class ProxyService {
     // Independent reads — the params row and the provider spec list don't
     // depend on each other, so fetch them concurrently to shave a round-trip
     // off the cold path before forwarding.
-    const [primaryModelParams, primarySpecs] = explicitModelOverride
-      ? ([null, []] as const)
-      : await Promise.all([
-          routingDecision.requestParams !== undefined
-            ? Promise.resolve(routingDecision.requestParams)
-            : this.modelParamsService.get(
-                agentId,
-                effectiveScopeKey,
-                route.provider,
-                route.authType,
-                primaryModel,
-              ),
-          this.providerParamSpecs.getSpecs(route.provider, route.authType, primaryModel),
-        ]);
-    const primaryRequestParams = explicitModelOverride
-      ? null
-      : snapshotRequestParams({
-          body: routingBody as Record<string, unknown>,
-          modelParams: primaryModelParams,
-          specs: primarySpecs,
-        });
+    const [primaryModelParams, primarySpecs] = await Promise.all([
+      routingDecision.requestParams !== undefined
+        ? Promise.resolve(routingDecision.requestParams)
+        : this.modelParamsService.get(
+            agentId,
+            effectiveScopeKey,
+            route.provider,
+            route.authType,
+            primaryModel,
+          ),
+      this.providerParamSpecs.getSpecs(route.provider, route.authType, primaryModel),
+    ]);
+    const primaryRequestParams = snapshotRequestParams({
+      body: routingBody as Record<string, unknown>,
+      modelParams: primaryModelParams,
+      specs: primarySpecs,
+    });
 
     const forward = await this.fallbackService.tryForwardToProvider({
       provider: route.provider,
@@ -491,17 +487,29 @@ export class ProxyService {
       const models = await this.modelDiscovery.getModelsForAgent(tenantId, agentId);
       const directRoute = routeForOpenAiModelId(requestedModel, models);
       if (directRoute) {
-        return {
-          resolved: {
-            tier: 'default' as const,
-            route: directRoute,
-            fallback_routes: null,
-            response_mode: DEFAULT_RESPONSE_MODE,
-            confidence: 1,
-            score: 0,
-            reason: 'default' as const,
-            explicit_model_override: true,
+        const resolved = {
+          tier: 'default' as const,
+          route: directRoute,
+          fallback_routes: null,
+          response_mode: DEFAULT_RESPONSE_MODE,
+          confidence: 1,
+          score: 0,
+          reason: 'default' as const,
+          explicit_model_override: true,
+        };
+        const requestParams = await this.applyReasoningEffortHeader(
+          {
+            kind: 'resolved',
+            resolved,
+            requestParams: undefined,
+            acceptsReasoningEffortHeader: true,
           },
+          headers,
+        );
+        return {
+          resolved,
+          requestParams,
+          scopeKey: scopeKeyForDirectRoute(directRoute),
         };
       }
 
@@ -956,6 +964,17 @@ function mergeRequestParams(
 ): RequestParamDefaults {
   if (!base) return structuredCloneRecord(overrides) as RequestParamDefaults;
   return deepMergeRecords(base, overrides) as RequestParamDefaults;
+}
+
+function scopeKeyForDirectRoute(route: {
+  provider: string;
+  authType: AuthType;
+  model: string;
+}): string {
+  return `direct-model:${route.provider}:${route.authType}:${normalizeProviderModel(
+    route.provider,
+    route.model,
+  )}`;
 }
 
 function deepMergeRecords(

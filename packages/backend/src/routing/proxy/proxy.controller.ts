@@ -23,6 +23,7 @@ import { ThinkingBlockCache } from './thinking-block-cache';
 import { ReasoningContentCache } from './reasoning-content-cache';
 import { ModelAliasService } from '../model-aliases/model-alias.service';
 import { ModelDiscoveryService } from '../../model-discovery/model-discovery.service';
+import { ProviderParamSpecService } from '../routing-core/provider-param-spec.service';
 import { classifyCaller } from './caller-classifier';
 import { sanitizeRequestHeaders } from './request-headers';
 import {
@@ -41,6 +42,7 @@ import type { ProxyApiMode } from './proxy-types';
 import { ResponsesSseError } from './chatgpt-adapter';
 import { redactInlineImageDataUrls } from './inline-image-redaction';
 import { openAiModelId } from './openai-model-id';
+import type { ModelRoute, ProviderParamSpec } from 'manifest-shared';
 
 const MAX_SEEN_TENANTS = 10_000;
 const SEEN_TENANT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -53,6 +55,15 @@ interface OpenAiModelObject {
   owned_by: string;
   display_name?: string;
   type?: 'model';
+  manifest_params?: ManifestModelParam[];
+}
+
+interface ManifestModelParam {
+  category: 'reasoning';
+  path: string;
+  label: string;
+  values: string[];
+  default?: string;
 }
 
 interface OpenAiModelList {
@@ -79,12 +90,14 @@ export class ProxyController {
     private readonly reasoningCache: ReasoningContentCache,
     private readonly modelAliasService: ModelAliasService,
     private readonly modelDiscovery: ModelDiscoveryService,
+    private readonly providerParamSpecs: ProviderParamSpecService,
   ) {}
 
   @Get('models')
   async models(
     @Req() req: Request & { ingestionContext: IngestionContext },
   ): Promise<OpenAiModelList> {
+    const includeManifestParams = wantsManifestParams(req);
     const [aliases, models] = await Promise.all([
       this.modelAliasService.listEnabled(req.ingestionContext.agentId),
       this.modelDiscovery.getModelsForAgent(
@@ -115,13 +128,17 @@ export class ProxyController {
       const key = id.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      data.push({
+      const row: OpenAiModelObject = {
         id,
         object: 'model',
         created: MODEL_CREATED_UNKNOWN,
         owned_by: 'manifest',
         display_name: alias.display_name ?? id,
-      });
+      };
+      if (includeManifestParams && alias.source_kind === 'direct' && alias.route) {
+        addManifestParams(row, await this.manifestParamsForRoute(alias.route));
+      }
+      data.push(row);
     }
 
     for (const model of models) {
@@ -129,18 +146,44 @@ export class ProxyController {
       const key = id.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      data.push({
+      const row: OpenAiModelObject = {
         id,
         object: 'model',
         created: MODEL_CREATED_UNKNOWN,
         owned_by: model.provider,
-      });
+      };
+      if (includeManifestParams && model.authType) {
+        addManifestParams(
+          row,
+          await this.manifestParamsForRoute({
+            provider: model.provider,
+            authType: model.authType,
+            model: model.id,
+          }),
+        );
+      }
+      data.push(row);
     }
 
     return {
       object: 'list',
       data,
     };
+  }
+
+  private async manifestParamsForRoute(route: ModelRoute): Promise<ManifestModelParam[]> {
+    const specs = await this.providerParamSpecs.getSpecs(
+      route.provider,
+      route.authType,
+      route.model,
+    );
+    return specs.filter(isReasoningEnumSpec).map((spec) => ({
+      category: 'reasoning',
+      path: spec.path,
+      label: spec.label,
+      values: spec.values?.filter((value): value is string => typeof value === 'string') ?? [],
+      ...(typeof spec.default === 'string' ? { default: spec.default } : {}),
+    }));
   }
 
   @Post('chat/completions')
@@ -407,4 +450,24 @@ export class ProxyController {
       }
     }
   }
+}
+
+function wantsManifestParams(req: Request): boolean {
+  const value = req.query.manifest_params;
+  if (Array.isArray(value)) return value.includes('1') || value.includes('true');
+  return value === '1' || value === 'true';
+}
+
+function addManifestParams(row: OpenAiModelObject, params: ManifestModelParam[]): void {
+  if (params.length > 0) row.manifest_params = params;
+}
+
+function isReasoningEnumSpec(spec: ProviderParamSpec): boolean {
+  if (spec.group !== 'reasoning' || spec.type !== 'enum') return false;
+  if (!spec.values?.some((value) => typeof value === 'string')) return false;
+  const path = spec.path.toLowerCase();
+  if (path === 'reasoning_effort') return true;
+  if (path.endsWith('.effort')) return true;
+  if (path.endsWith('thinkinglevel')) return true;
+  return spec.label.toLowerCase().includes('effort');
 }

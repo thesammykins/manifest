@@ -26,6 +26,31 @@ describe('ChatGPT Adapter – toResponsesRequest', () => {
     expect(result.stream).toBe(false);
   });
 
+  it('maps flat reasoning_effort to Responses reasoning effort', () => {
+    const result = toResponsesRequest(
+      {
+        messages: [{ role: 'user', content: 'Hello world' }],
+        reasoning_effort: 'high',
+      },
+      'gpt-5',
+    );
+
+    expect(result.reasoning).toEqual({ effort: 'high' });
+  });
+
+  it('does not overwrite an explicit Responses reasoning object', () => {
+    const result = toResponsesRequest(
+      {
+        messages: [{ role: 'user', content: 'Hello world' }],
+        reasoning_effort: 'low',
+        reasoning: { effort: 'medium', summary: 'auto' },
+      },
+      'gpt-5',
+    );
+
+    expect(result.reasoning).toEqual({ effort: 'medium', summary: 'auto' });
+  });
+
   it('extracts system message as instructions', () => {
     const body = {
       messages: [

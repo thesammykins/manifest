@@ -118,6 +118,8 @@ export function toResponsesRequest(
 
   if (isObjectRecord(body.reasoning)) {
     request.reasoning = body.reasoning;
+  } else if (typeof body.reasoning_effort === 'string' && body.reasoning_effort) {
+    request.reasoning = { effort: body.reasoning_effort };
   }
 
   if (isObjectRecord(body.text)) {

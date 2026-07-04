@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 
-import OpenCodeSetup from '../../src/components/OpenCodeSetup';
+import OpenCodeSetup, { getOpenCodeConfig } from '../../src/components/OpenCodeSetup';
 import type { ModelAlias } from '../../src/services/api';
 
 const writeText = vi.fn().mockResolvedValue(undefined);
@@ -95,5 +95,47 @@ describe('OpenCodeSetup', () => {
     expect(container.textContent).toContain('"openai-subscription/gpt-5.5-high"');
     expect(container.textContent).toContain('"name": "GPT 5.5 High"');
     expect(container.textContent).not.toContain('gpt-5.5-hidden');
+  });
+
+  it('collapses direct reasoning aliases into OpenCode variants when a base alias exists', () => {
+    const aliases = [
+      {
+        model_id: 'openai-subscription/gpt-5.5',
+        display_name: 'GPT 5.5',
+        enabled: true,
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.5' },
+        request_params: null,
+      },
+      {
+        model_id: 'openai-subscription/gpt-5.5-high',
+        display_name: 'GPT 5.5 High',
+        enabled: true,
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.5' },
+        request_params: { reasoning: { effort: 'high' } },
+      },
+      {
+        model_id: 'openai-subscription/gpt-5.5-low',
+        display_name: 'GPT 5.5 Low',
+        enabled: true,
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.5' },
+        request_params: { reasoning: { effort: 'low' } },
+      },
+    ] as ModelAlias[];
+
+    const config = JSON.parse(getOpenCodeConfig('http://localhost:38240/v1', 'mnfst_key', aliases));
+    const models = config.provider.manifest.models;
+
+    expect(models['openai-subscription/gpt-5.5']).toMatchObject({
+      name: 'GPT 5.5',
+      variants: {
+        high: { reasoningEffort: 'high' },
+        low: { reasoningEffort: 'low' },
+      },
+    });
+    expect(models['openai-subscription/gpt-5.5-high']).toBeUndefined();
+    expect(models['openai-subscription/gpt-5.5-low']).toBeUndefined();
   });
 });
