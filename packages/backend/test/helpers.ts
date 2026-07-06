@@ -36,6 +36,7 @@ import { PlaygroundRun } from '../src/entities/playground-run.entity';
 import { PlaygroundColumn } from '../src/entities/playground-column.entity';
 import { ReasoningContentCacheEntry } from '../src/entities/reasoning-content-cache-entry.entity';
 import { AgentEnabledProvider } from '../src/entities/agent-enabled-provider.entity';
+import { AgentModelFilter } from '../src/entities/agent-model-filter.entity';
 import { BackfillState } from '../src/entities/backfill-state.entity';
 import { ExposedModelRoute } from '../src/entities/exposed-model-route.entity';
 import { PublicErrorPage } from '../src/entities/public-error-page.entity';
@@ -79,6 +80,7 @@ const entities = [
   PlaygroundColumn,
   ReasoningContentCacheEntry,
   AgentEnabledProvider,
+  AgentModelFilter,
   BackfillState,
   ExposedModelRoute,
   PublicErrorPage,
