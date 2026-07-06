@@ -585,7 +585,9 @@ describe('ResolveService', () => {
       ]);
       mockedScan.mockReturnValue({ category: 'coding', confidence: 0.9 } as never);
       providerKeyService.isModelAvailable.mockResolvedValue(false);
-      providerKeyService.isRouteAvailable.mockResolvedValue(false);
+      providerKeyService.isRouteAvailable.mockImplementation(
+        async (_tenantId: string, r: ModelRoute) => r.model !== 'orphaned',
+      );
       tierService.getTiers.mockResolvedValue([
         {
           tier: 'standard',
@@ -814,7 +816,9 @@ describe('ResolveService', () => {
         } as unknown as TierAssignment,
       ]);
       providerKeyService.isModelAvailable.mockResolvedValue(false);
-      providerKeyService.isRouteAvailable.mockResolvedValue(false);
+      providerKeyService.isRouteAvailable.mockImplementation(
+        async (_tenantId: string, r: ModelRoute) => r.model !== 'orphaned',
+      );
 
       const result = await svc.resolve('agent-1', 'user-1', messages);
       expect(result.tier).toBe('standard');
@@ -841,7 +845,9 @@ describe('ResolveService', () => {
         } as unknown as TierAssignment,
       ]);
       providerKeyService.isModelAvailable.mockResolvedValue(false);
-      providerKeyService.isRouteAvailable.mockResolvedValue(false);
+      providerKeyService.isRouteAvailable.mockImplementation(
+        async (_tenantId: string, r: ModelRoute) => r.model !== 'orphaned',
+      );
 
       const result = await svc.resolve('agent-1', 'user-1', messages);
       expect(result.route).toEqual(route('anthropic', 'api_key', 'fallback-1'));
