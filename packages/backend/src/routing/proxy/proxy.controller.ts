@@ -38,8 +38,10 @@ import {
 import { ProxyExceptionFilter, isChatRenderingClient } from './proxy-exception.filter';
 import { sendFriendlyResponse } from './proxy-friendly-response';
 import { formatManifestError } from '../../common/errors/error-codes';
+import { escapeHtml } from '../../common/utils/html-escape';
 import type { ProxyApiMode } from './proxy-types';
 import { ResponsesSseError } from './chatgpt-adapter';
+import { sanitizeExceptionResponse } from './proxy-error-response';
 import { redactInlineImageDataUrls } from './inline-image-redaction';
 import { isReasoningEffortSuffix, openAiModelId } from './openai-model-id';
 import type { ModelRoute, ProviderParamSpec } from 'manifest-shared';
@@ -419,13 +421,7 @@ export class ProxyController {
     // Rate limit errors stay as HTTP 429 so clients can backoff
     if (status === 429) {
       const response = err instanceof HttpException ? err.getResponse() : message;
-      res
-        .status(429)
-        .json(
-          typeof response === 'string'
-            ? { error: { message: response, type: 'proxy_error' } }
-            : response,
-        );
+      res.status(429).json(sanitizeExceptionResponse(response));
       return;
     }
 
@@ -440,7 +436,9 @@ export class ProxyController {
     // envelope so CI pipelines can detect failures instead of treating the
     // friendly stub as success.
     const errorMessage =
-      status >= 500 ? 'Manifest encountered an internal error. Try again shortly.' : message;
+      status >= 500
+        ? 'Manifest encountered an internal error. Try again shortly.'
+        : escapeHtml(message);
     res.status(status).json({
       error: {
         message: errorMessage,

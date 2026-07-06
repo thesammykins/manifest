@@ -453,6 +453,7 @@ export class CustomProviderService {
       // only accepted in the self-hosted version. `redirect: 'error'`
       // ensures a hostile server can't redirect the probe to a destination
       // that would bypass validation.
+
       // codeql[js/request-forgery]
       const res = await fetch(url, {
         headers,

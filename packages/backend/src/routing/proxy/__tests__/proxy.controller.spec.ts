@@ -1151,6 +1151,25 @@ describe('ProxyController', () => {
     );
   });
 
+  it('should HTML-escape non-chat client error envelopes', async () => {
+    proxyService.proxyRequest.mockRejectedValue(
+      new HttpException(`<img src=x onerror="alert('xss')">`, 400),
+    );
+
+    const req = mockRequest({ messages: [{ role: 'user', content: 'test' }] });
+    const { res } = mockResponse();
+
+    await controller.chatCompletions(req as never, res as never);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: {
+        message: `&lt;img src=x onerror="alert('xss')"&gt;`,
+        type: 'invalid_request_error',
+      },
+    });
+  });
+
   it('should surface collected Responses SSE failures as OpenAI-compatible errors', async () => {
     proxyService.proxyRequest.mockRejectedValue(
       new ResponsesSseError(
@@ -1183,6 +1202,38 @@ describe('ProxyController', () => {
     });
   });
 
+  it('should HTML-escape collected Responses SSE upstream messages', async () => {
+    proxyService.proxyRequest.mockRejectedValue(
+      new ResponsesSseError(
+        `<img src=x onerror="alert('xss')">`,
+        400,
+        JSON.stringify({
+          error: {
+            message: `<img src=x onerror="alert('xss')">`,
+            type: 'invalid_request_error',
+          },
+        }),
+      ),
+    );
+
+    const req = mockRequest({ messages: [{ role: 'user', content: 'test' }] });
+    const { res } = mockResponse();
+
+    await controller.chatCompletions(req as never, res as never);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: {
+        message: `&lt;img src=x onerror="alert('xss')"&gt;`,
+        type: 'invalid_request_error',
+        param: null,
+        code: null,
+        status: 400,
+        source: 'provider',
+      },
+    });
+  });
+
   it('should forward HttpException as friendly chat message', async () => {
     proxyService.proxyRequest.mockRejectedValue(
       new HttpException('Bad request: messages required', 400),
@@ -1201,6 +1252,30 @@ describe('ProxyController', () => {
           expect.objectContaining({
             message: expect.objectContaining({
               content: 'Bad request: messages required',
+            }),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('should HTML-escape HttpException friendly chat messages', async () => {
+    proxyService.proxyRequest.mockRejectedValue(
+      new HttpException(`<img src=x onerror="alert('xss')">`, 400),
+    );
+
+    const req = mockRequest({}, 'user-1', { accept: 'text/event-stream' });
+    const { res } = mockResponse();
+
+    await controller.chatCompletions(req as never, res as never);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        choices: expect.arrayContaining([
+          expect.objectContaining({
+            message: expect.objectContaining({
+              content: `&lt;img src=x onerror="alert('xss')"&gt;`,
             }),
           }),
         ]),
@@ -1439,6 +1514,25 @@ describe('ProxyController', () => {
       expect(res.status).toHaveBeenCalledWith(429);
       expect(res.json).toHaveBeenCalledWith({
         error: { message: 'Too many requests', type: 'proxy_error' },
+      });
+    });
+
+    it('should HTML-escape string HttpException responses on 429', async () => {
+      rateLimiter.checkLimit.mockImplementation(() => {
+        throw new HttpException(`<img src=x onerror="alert('xss')">`, 429);
+      });
+
+      const req = mockRequest({ messages: [{ role: 'user', content: 'hi' }] });
+      const { res } = mockResponse();
+
+      await controller.chatCompletions(req as never, res as never);
+
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(res.json).toHaveBeenCalledWith({
+        error: {
+          message: `&lt;img src=x onerror="alert('xss')"&gt;`,
+          type: 'proxy_error',
+        },
       });
     });
 

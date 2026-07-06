@@ -91,6 +91,14 @@ describe('proxy-friendly-response', () => {
       expect(choices[0].message.content).toBe('Hello world');
     });
 
+    it('escapes HTML in non-streaming chat completion content', async () => {
+      const result = buildFriendlyResponse(`<img src=x onerror="alert('xss')">`, false);
+      const json = (await result.forward.response.json()) as Record<string, unknown>;
+      const choices = json.choices as { message: { content: string } }[];
+
+      expect(choices[0].message.content).toBe(`&lt;img src=x onerror="alert('xss')"&gt;`);
+    });
+
     it('returns streaming SSE response', async () => {
       const result = buildFriendlyResponse('Stream test', true);
 
@@ -102,6 +110,14 @@ describe('proxy-friendly-response', () => {
       expect(text).toContain('"Stream test"');
       expect(text).toContain('chat.completion.chunk');
       expect(text).toContain('data: [DONE]');
+    });
+
+    it('escapes HTML in streaming chat completion content', async () => {
+      const result = buildFriendlyResponse(`<script>alert('xss')</script>`, true);
+      const text = await result.forward.response.text();
+
+      expect(text).not.toContain('<script>');
+      expect(text).toContain(`&lt;script&gt;alert('xss')&lt;/script&gt;`);
     });
 
     it('uses custom reason when provided', () => {
@@ -139,6 +155,15 @@ describe('proxy-friendly-response', () => {
       );
     });
 
+    it('escapes HTML in non-streaming JSON response content', () => {
+      sendFriendlyResponse(res, `<img src=x onerror="alert('xss')">`, false);
+
+      const body = res.json.mock.calls[0][0] as {
+        choices: { message: { content: string } }[];
+      };
+      expect(body.choices[0].message.content).toBe(`&lt;img src=x onerror="alert('xss')"&gt;`);
+    });
+
     it('sends streaming SSE response', () => {
       sendFriendlyResponse(res, 'Stream msg', true);
 
@@ -150,6 +175,14 @@ describe('proxy-friendly-response', () => {
       const payload = res.send.mock.calls[0][0] as string;
       expect(payload).toContain('Stream msg');
       expect(payload).toContain('data: [DONE]');
+    });
+
+    it('escapes HTML in streaming SSE response content', () => {
+      sendFriendlyResponse(res, `<script>alert('xss')</script>`, true);
+
+      const payload = res.send.mock.calls[0][0] as string;
+      expect(payload).not.toContain('<script>');
+      expect(payload).toContain(`&lt;script&gt;alert('xss')&lt;/script&gt;`);
     });
   });
 });

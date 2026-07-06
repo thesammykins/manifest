@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { Response as ExpressResponse } from 'express';
+import { escapeHtml } from '../../common/utils/html-escape';
 import { Tier } from '../../scoring/types';
 import type { ResponseMode } from 'manifest-shared';
 
@@ -45,6 +46,7 @@ export function buildFriendlyResponse(
 ): FriendlyResult {
   const id = `chatcmpl-manifest-${randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
+  const safeContent = escapeHtml(content);
 
   const meta: FriendlyResult['meta'] = {
     tier: 'simple' as Tier,
@@ -61,7 +63,13 @@ export function buildFriendlyResponse(
       object: 'chat.completion.chunk',
       created,
       model: 'manifest',
-      choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: 'stop' }],
+      choices: [
+        {
+          index: 0,
+          delta: { role: 'assistant', content: safeContent },
+          finish_reason: 'stop',
+        },
+      ],
     };
     const ssePayload = `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`;
     const encoder = new TextEncoder();
@@ -93,7 +101,7 @@ export function buildFriendlyResponse(
     choices: [
       {
         index: 0,
-        message: { role: 'assistant', content },
+        message: { role: 'assistant', content: safeContent },
         finish_reason: 'stop',
       },
     ],
@@ -121,6 +129,7 @@ export function buildFriendlyResponse(
 export function sendFriendlyResponse(res: ExpressResponse, content: string, stream: boolean): void {
   const id = `chatcmpl-manifest-${randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
+  const safeContent = escapeHtml(content);
 
   if (stream) {
     const chunk = {
@@ -128,7 +137,13 @@ export function sendFriendlyResponse(res: ExpressResponse, content: string, stre
       object: 'chat.completion.chunk',
       created,
       model: 'manifest',
-      choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: 'stop' }],
+      choices: [
+        {
+          index: 0,
+          delta: { role: 'assistant', content: safeContent },
+          finish_reason: 'stop',
+        },
+      ],
     };
     const ssePayload = `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`;
     res.setHeader('Content-Type', 'text/event-stream');
@@ -144,7 +159,7 @@ export function sendFriendlyResponse(res: ExpressResponse, content: string, stre
       choices: [
         {
           index: 0,
-          message: { role: 'assistant', content },
+          message: { role: 'assistant', content: safeContent },
           finish_reason: 'stop',
         },
       ],

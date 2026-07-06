@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../common/utils/html-escape';
+
 const KNOWN_ERROR_MESSAGES: Record<number, string> = {
   400: 'Bad request to upstream provider',
   401: 'Authentication failed with upstream provider',
@@ -115,7 +117,7 @@ export function sanitizeProviderError(status: number, rawBody: string, nodeEnv?:
 
   const message = extractProviderMessage(rawBody);
   if (message) {
-    return normalizeErrorMessage(message).slice(0, 500);
+    return escapeHtml(normalizeErrorMessage(message).slice(0, 500));
   }
 
   return generic;

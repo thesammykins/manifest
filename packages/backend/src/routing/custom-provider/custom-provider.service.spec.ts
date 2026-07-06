@@ -1079,10 +1079,15 @@ describe('CustomProviderService', () => {
 
     it('throws BadRequest when the URL fails validation', async () => {
       (validatePublicUrl as jest.Mock).mockRejectedValue(new Error('private or internal'));
+      global.fetch = jest.fn() as unknown as typeof fetch;
       const { svc } = makeDeps({});
       await expect(svc.probeModels('http://127.0.0.1:11434/v1')).rejects.toBeInstanceOf(
         BadRequestException,
       );
+      expect(validatePublicUrl).toHaveBeenCalledWith('http://127.0.0.1:11434/v1', {
+        allowPrivate: false,
+      });
+      expect(global.fetch).not.toHaveBeenCalled();
     });
 
     it('throws BadRequest when the server responds with a non-2xx status', async () => {

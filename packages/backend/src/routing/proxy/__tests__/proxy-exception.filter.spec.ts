@@ -161,6 +161,35 @@ describe('ProxyExceptionFilter', () => {
       expect(res.status).toHaveBeenCalledWith(429);
       expect(res.json).toHaveBeenCalledWith(errorBody);
     });
+
+    it('HTML-escapes string 429 error responses', () => {
+      const { host, res } = createMockHost();
+      filter.catch(new HttpException(`<img src=x onerror="alert('xss')">`, 429), host);
+
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(res.json).toHaveBeenCalledWith({
+        error: {
+          message: `&lt;img src=x onerror="alert('xss')"&gt;`,
+          type: 'proxy_error',
+        },
+      });
+    });
+
+    it('HTML-escapes structured 429 error messages', () => {
+      const errorBody = {
+        error: { message: `<img src=x onerror="alert('xss')">`, type: 'rate_limit' },
+      };
+      const { host, res } = createMockHost();
+      filter.catch(new HttpException(errorBody, 429), host);
+
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(res.json).toHaveBeenCalledWith({
+        error: {
+          message: `&lt;img src=x onerror="alert('xss')"&gt;`,
+          type: 'rate_limit',
+        },
+      });
+    });
   });
 
   describe('other errors — chat client', () => {
@@ -171,6 +200,15 @@ describe('ProxyExceptionFilter', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       const content = res.json.mock.calls[0][0].choices[0].message.content;
       expect(content).toBe('messages array is required');
+    });
+
+    it('HTML-escapes client error messages in friendly chat responses', () => {
+      const { host, res } = chatHost();
+      filter.catch(new BadRequestException(`<img src=x onerror="alert('xss')">`), host);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const content = res.json.mock.calls[0][0].choices[0].message.content;
+      expect(content).toBe(`&lt;img src=x onerror="alert('xss')"&gt;`);
     });
 
     it('converts 500 errors to generic friendly message', () => {
@@ -230,6 +268,20 @@ describe('ProxyExceptionFilter', () => {
           error: expect.objectContaining({
             type: 'invalid_request_error',
             message: 'messages array is required',
+          }),
+        }),
+      );
+    });
+
+    it('HTML-escapes validation error messages for non-chat clients', () => {
+      const { host, res } = createMockHost();
+      filter.catch(new BadRequestException(`<img src=x onerror="alert('xss')">`), host);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: `&lt;img src=x onerror="alert('xss')"&gt;`,
           }),
         }),
       );

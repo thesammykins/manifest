@@ -24,6 +24,7 @@ import { KiroOauthService } from '../routing/oauth/kiro/kiro-oauth.service';
 import { XaiOauthService } from '../routing/oauth/xai/xai-oauth.service';
 import { ModelPricingCacheService } from '../model-prices/model-pricing-cache.service';
 import { computeTokenCost } from '../common/utils/cost-calculator';
+import { escapeHtml } from '../common/utils/html-escape';
 import { scrubSecrets } from '../common/utils/secret-scrub';
 import { IngestEventBusService } from '../common/services/ingest-event-bus.service';
 import { TenantContext } from '../common/decorators/tenant-context.decorator';
@@ -253,6 +254,7 @@ export class PlaygroundService {
       }
       const durationMs = Date.now() - startedAt;
       const errorSummary = this.truncateError(bodyText, forward.response.status);
+      const safeErrorSummary = escapeHtml(errorSummary);
       await this.recordError(
         ctx.userId,
         agent,
@@ -263,7 +265,7 @@ export class PlaygroundService {
         durationMs,
       );
       await this.history.saveColumn(
-        this.errorColumn(ctx.userId, agent, dto, authType, headers, errorSummary),
+        this.errorColumn(ctx.userId, agent, dto, authType, headers, safeErrorSummary),
       );
       return this.sendPreStreamError(res, 502, errorSummary);
     }
@@ -361,19 +363,20 @@ export class PlaygroundService {
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
+      const safeMessage = escapeHtml(message);
       const durationMs = Date.now() - startedAt;
       await this.recordError(ctx.userId, agent, dto, authType, 502, message, durationMs);
       await this.history.saveColumn(
-        this.errorColumn(ctx.userId, agent, dto, authType, headers, message),
+        this.errorColumn(ctx.userId, agent, dto, authType, headers, safeMessage),
       );
-      send({ type: 'error', message });
+      send({ type: 'error', message: safeMessage });
       if (!res.writableEnded) res.end();
     }
   }
 
   private sendPreStreamError(res: ExpressResponse, status: number, message: string): void {
     if (res.headersSent || res.writableEnded) return;
-    res.status(status).json({ statusCode: status, message });
+    res.status(status).json({ statusCode: status, message: escapeHtml(message) });
   }
 
   private errorColumn(

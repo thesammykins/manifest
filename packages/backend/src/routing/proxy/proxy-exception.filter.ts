@@ -2,6 +2,8 @@ import { ExceptionFilter, Catch, ArgumentsHost, HttpException, Injectable } from
 import { ConfigService } from '@nestjs/config';
 import { Request, Response as ExpressResponse } from 'express';
 import { formatManifestError, ManifestErrorCode } from '../../common/errors/error-codes';
+import { escapeHtml } from '../../common/utils/html-escape';
+import { sanitizeExceptionResponse } from './proxy-error-response';
 import { getDashboardUrl, sendFriendlyResponse } from './proxy-friendly-response';
 
 /** Guard-thrown messages that should become friendly chat responses. */
@@ -55,13 +57,7 @@ export class ProxyExceptionFilter implements ExceptionFilter {
     // Rate limit errors should stay as HTTP 429 so clients can backoff
     if (PASSTHROUGH_STATUSES.has(status)) {
       const response = exception.getResponse();
-      res
-        .status(status)
-        .json(
-          typeof response === 'string'
-            ? { error: { message: response, type: 'proxy_error' } }
-            : response,
-        );
+      res.status(status).json(sanitizeExceptionResponse(response));
       return;
     }
 
@@ -82,7 +78,7 @@ export class ProxyExceptionFilter implements ExceptionFilter {
         // Real status — auth errors get 401, validation errors keep their status.
         const realStatus = status === 400 ? 400 : 401;
         res.status(realStatus).json({
-          error: { message: content, type: 'auth_error', code: 'manifest_auth' },
+          error: { message: escapeHtml(content), type: 'auth_error', code: 'manifest_auth' },
         });
       }
       return;
@@ -96,7 +92,9 @@ export class ProxyExceptionFilter implements ExceptionFilter {
 
     // Tools and monitors: pass the real HTTP status with a structured envelope.
     const errorMessage =
-      status >= 500 ? 'Manifest encountered an internal error. Try again shortly.' : message;
+      status >= 500
+        ? 'Manifest encountered an internal error. Try again shortly.'
+        : escapeHtml(message);
     res.status(status).json({
       error: {
         message: errorMessage,

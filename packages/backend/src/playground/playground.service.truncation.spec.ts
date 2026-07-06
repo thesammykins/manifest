@@ -290,6 +290,36 @@ describe('PlaygroundService.runStream — error body truncation', () => {
     expect(row.error_message).toContain('[REDACTED]');
   });
 
+  it('HTML-escapes provider error snippets before returning or saving history', async () => {
+    const { service, mocks } = buildService();
+    const hostileBody = `<img src=x onerror="alert('xss')">`;
+    mocks.providerClient.forward.mockResolvedValue({
+      response: {
+        ok: false,
+        status: 400,
+        headers: new Headers(),
+        text: jest.fn().mockResolvedValue(hostileBody),
+        body: null,
+      },
+      isGoogle: false,
+      isAnthropic: false,
+      isChatGpt: false,
+    });
+    const res = mockRes();
+
+    await service.runStream(CTX, makeDto(), asRes(res));
+
+    const message = (res._json as { message: string }).message;
+    expect(message).toBe(`Provider returned 400: &lt;img src=x onerror="alert('xss')"&gt;`);
+
+    const column = mocks.history.saveColumn.mock.calls[0][0];
+    expect(column.errorMessage).toBe(message);
+    expect(column.errorMessage).not.toContain('<img');
+
+    const row = mocks.messageRepo.insert.mock.calls[0][0];
+    expect(row.error_message).toBe(hostileBody);
+  });
+
   it('preserves short error bodies verbatim (no over-truncation)', async () => {
     const { service, mocks } = buildService();
     const shortBody = 'quota exceeded';
