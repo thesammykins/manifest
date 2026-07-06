@@ -111,6 +111,8 @@ describe('Proxy E2E — /v1/models', () => {
           created: 0,
           owned_by: 'manifest',
           display_name: 'Manifest Auto',
+          context_window: 128000,
+          context_length: 128000,
         },
         {
           id: 'manifest/auto',
@@ -118,8 +120,17 @@ describe('Proxy E2E — /v1/models', () => {
           created: 0,
           owned_by: 'manifest',
           display_name: 'Manifest Auto',
+          context_window: 128000,
+          context_length: 128000,
         },
-        { id: 'openai/gpt-4o-mini', object: 'model', created: 0, owned_by: 'openai' },
+        {
+          id: 'openai/gpt-4o-mini',
+          object: 'model',
+          created: 0,
+          owned_by: 'openai',
+          context_window: 128000,
+          context_length: 128000,
+        },
       ],
     });
   });
@@ -131,7 +142,14 @@ describe('Proxy E2E — root OpenAI-compatible aliases', () => {
 
     expect(res.body.data).toEqual(
       expect.arrayContaining([
-        { id: 'openai/gpt-4o-mini', object: 'model', created: 0, owned_by: 'openai' },
+        expect.objectContaining({
+          id: 'openai/gpt-4o-mini',
+          object: 'model',
+          created: 0,
+          owned_by: 'openai',
+          context_window: 128000,
+          context_length: 128000,
+        }),
       ]),
     );
   });
