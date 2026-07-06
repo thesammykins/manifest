@@ -97,6 +97,7 @@ describe('ProxyController streaming abort', () => {
   let mockMessageRepo: { insert: jest.Mock; findOne: jest.Mock; find: jest.Mock };
   let modelDiscovery: { getModelsForAgent: jest.Mock };
   let providerParamSpecs: { getSpecs: jest.Mock };
+  let resolveService: { getAvailableRouteChains: jest.Mock };
   let recorder: ProxyMessageRecorder;
 
   beforeEach(() => {
@@ -127,6 +128,9 @@ describe('ProxyController streaming abort', () => {
     providerParamSpecs = {
       getSpecs: jest.fn().mockResolvedValue([]),
     };
+    resolveService = {
+      getAvailableRouteChains: jest.fn().mockResolvedValue([]),
+    };
     recorder = makeRecorder(mockMessageRepo);
     controller = new ProxyController(
       proxyService as never,
@@ -139,6 +143,7 @@ describe('ProxyController streaming abort', () => {
       modelAliasService as never,
       modelDiscovery as never,
       providerParamSpecs as never,
+      resolveService as never,
     );
   });
 
