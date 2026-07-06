@@ -39,6 +39,7 @@ import { AgentEnabledProvider } from '../src/entities/agent-enabled-provider.ent
 import { BackfillState } from '../src/entities/backfill-state.entity';
 import { ExposedModelRoute } from '../src/entities/exposed-model-route.entity';
 import { PublicErrorPage } from '../src/entities/public-error-page.entity';
+import { AutofixWaitlistSignup } from '../src/entities/autofix-waitlist-signup.entity';
 import { HealthModule } from '../src/health/health.module';
 import { AnalyticsModule } from '../src/analytics/analytics.module';
 import { OtlpModule } from '../src/otlp/otlp.module';
@@ -81,6 +82,7 @@ const entities = [
   BackfillState,
   ExposedModelRoute,
   PublicErrorPage,
+  AutofixWaitlistSignup,
 ];
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 const OPENROUTER_MODELS_FIXTURE = {
