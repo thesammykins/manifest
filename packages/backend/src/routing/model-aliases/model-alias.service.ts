@@ -266,8 +266,27 @@ export class ModelAliasService {
     }
     const responseMode = alias.response_mode ?? DEFAULT_RESPONSE_MODE;
     const fallbackRoutes = isModelRouteArray(alias.fallback_routes) ? alias.fallback_routes : null;
-    const enrichedRoute = await this.enrichRouteKeyLabel(agentId, tenantId, route);
-    const effective = effectiveRoutesForResponseMode(responseMode, enrichedRoute, fallbackRoutes);
+    const routeChain = await this.availableDirectRouteChain(
+      agentId,
+      tenantId,
+      route,
+      fallbackRoutes,
+    );
+    if (!routeChain.primaryRoute) {
+      throw new NotFoundException(
+        `Model alias "${alias.model_id}" has no available provider route.`,
+      );
+    }
+    const enrichedRoute = await this.enrichRouteKeyLabel(
+      agentId,
+      tenantId,
+      routeChain.primaryRoute,
+    );
+    const effective = effectiveRoutesForResponseMode(
+      responseMode,
+      enrichedRoute,
+      routeChain.fallbackRoutes,
+    );
     return {
       tier: 'default',
       route: effective.primaryRoute,
@@ -277,6 +296,26 @@ export class ModelAliasService {
       confidence: 1,
       score: 0,
       reason: 'direct-model',
+    };
+  }
+
+  private async availableDirectRouteChain(
+    agentId: string,
+    tenantId: string,
+    route: ModelRoute,
+    fallbackRoutes: ModelRoute[] | null,
+  ): Promise<{ primaryRoute: ModelRoute | null; fallbackRoutes: ModelRoute[] | null }> {
+    const candidates = [route, ...(fallbackRoutes ?? [])];
+    const available: ModelRoute[] = [];
+    for (const candidate of candidates) {
+      if (await this.providerKeyService.isRouteAvailable(tenantId, candidate, agentId)) {
+        available.push(candidate);
+      }
+    }
+    const [primaryRoute, ...remainingFallbacks] = available;
+    return {
+      primaryRoute: primaryRoute ?? null,
+      fallbackRoutes: remainingFallbacks.length > 0 ? remainingFallbacks : null,
     };
   }
 

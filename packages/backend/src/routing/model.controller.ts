@@ -1,9 +1,20 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { TenantCtx, TenantContext } from '../common/decorators/tenant-context.decorator';
 import { ResolveAgentService } from './routing-core/resolve-agent.service';
 import { CustomProviderService } from './custom-provider/custom-provider.service';
 import { ProviderParamSpecService } from './routing-core/provider-param-spec.service';
 import { ModelDiscoveryService } from '../model-discovery/model-discovery.service';
+import { AgentModelFilterService } from '../model-discovery/agent-model-filter.service';
+import type { FilterableDiscoveredModel } from '../model-discovery/agent-model-filter.service';
 import { OpencodeGoCatalogService } from '../model-discovery/opencode-go-catalog.service';
 import { OllamaSyncService } from '../database/ollama-sync.service';
 import { PricingSyncService } from '../database/pricing-sync.service';
@@ -19,6 +30,7 @@ import {
   AgentProviderParamDto,
   RemoveProviderQueryDto,
 } from './dto/routing.dto';
+import { SetModelFilterDto } from './dto/model-filter.dto';
 
 function formatModelSlug(slug: string): string {
   return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -49,6 +61,27 @@ function displayNameForModel(
   return trimmedDisplay || null;
 }
 
+function finiteContextWindow(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function filterRowForModel(
+  model: FilterableDiscoveredModel,
+  metadataName: string | null | undefined,
+) {
+  const authType = model.authType ?? 'api_key';
+  return {
+    provider: model.provider,
+    auth_type: authType,
+    model_name: model.id,
+    display_name: CustomProviderService.isCustom(model.provider)
+      ? CustomProviderService.rawModelName(model.id)
+      : displayNameForModel(model.provider, model.id, model.displayName, metadataName),
+    context_window: finiteContextWindow(model.contextWindow),
+    enabled: model.enabled,
+  };
+}
+
 @Controller('api/v1/routing')
 export class ModelController {
   constructor(
@@ -60,6 +93,7 @@ export class ModelController {
     private readonly providerParamSpecs: ProviderParamSpecService,
     private readonly modelsDevSync: ModelsDevSyncService,
     private readonly opencodeGoCatalog: OpencodeGoCatalogService,
+    private readonly modelFilters: AgentModelFilterService,
   ) {}
 
   @Get('pricing-health')
@@ -178,5 +212,73 @@ export class ModelController {
         };
       }),
     );
+  }
+
+  @Get(':agentName/model-filters')
+  async getModelFilters(@TenantCtx() ctx: TenantContext, @Param() params: AgentNameParamDto) {
+    const agent = await this.resolveAgentService.resolve(ctx.tenantId, params.agentName);
+    return this.buildModelFilterRows(agent.tenant_id, agent.id);
+  }
+
+  @Patch(':agentName/model-filters')
+  async patchModelFilter(
+    @TenantCtx() ctx: TenantContext,
+    @Param() params: AgentNameParamDto,
+    @Body() body: SetModelFilterDto,
+  ) {
+    const agent = await this.resolveAgentService.resolve(ctx.tenantId, params.agentName);
+    const models = await this.discoveryService.getModelsForAgentWithFilterState(
+      agent.tenant_id,
+      agent.id,
+    );
+    const model = models.find(
+      (candidate) =>
+        candidate.provider.toLowerCase() === body.provider.toLowerCase() &&
+        (candidate.authType ?? 'api_key') === body.auth_type &&
+        candidate.id.toLowerCase() === body.model_name.toLowerCase(),
+    );
+    if (!model) {
+      throw new BadRequestException(
+        `Model "${body.model_name}" is not available for provider "${body.provider}" (${body.auth_type}).`,
+      );
+    }
+
+    await this.modelFilters.setModelEnabled(
+      agent.tenant_id,
+      agent.id,
+      {
+        provider: model.provider,
+        authType: model.authType ?? 'api_key',
+        modelId: model.id,
+      },
+      body.enabled,
+    );
+    this.discoveryService.invalidate(agent.id);
+
+    const capId = resolveProviderMetadataIdentity(model.provider, model.id);
+    const modelsDevEntry = this.modelsDevSync.lookupModel(
+      capId.provider ?? model.provider,
+      capId.model,
+    );
+    return filterRowForModel({ ...model, enabled: body.enabled }, modelsDevEntry?.name);
+  }
+
+  private async buildModelFilterRows(tenantId: string, agentId: string) {
+    const models = await this.discoveryService.getModelsForAgentWithFilterState(tenantId, agentId);
+    const rows = models.map((model) => {
+      const capId = resolveProviderMetadataIdentity(model.provider, model.id);
+      const modelsDevEntry = this.modelsDevSync.lookupModel(
+        capId.provider ?? model.provider,
+        capId.model,
+      );
+      return filterRowForModel(model, modelsDevEntry?.name);
+    });
+    return rows.sort((a, b) => {
+      const provider = a.provider.localeCompare(b.provider);
+      if (provider !== 0) return provider;
+      const authType = a.auth_type.localeCompare(b.auth_type);
+      if (authType !== 0) return authType;
+      return a.model_name.localeCompare(b.model_name);
+    });
   }
 }

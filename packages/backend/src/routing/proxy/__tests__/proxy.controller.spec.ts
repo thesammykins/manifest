@@ -110,7 +110,8 @@ describe('ProxyController', () => {
     convertAnthropicStreamChunk: jest.Mock;
     createChatGptStreamTransformer: jest.Mock;
   };
-  let modelAliasService: { listEnabled: jest.Mock };
+  let modelAliasService: { listEnabled: jest.Mock; resolveModelRequest: jest.Mock };
+  let resolveService: { getAvailableRouteChains: jest.Mock };
   let mockMessageManager: {
     transaction: jest.Mock;
     getRepository: jest.Mock;
@@ -148,7 +149,16 @@ describe('ProxyController', () => {
         finalize: jest.fn().mockReturnValue(null),
       }),
     };
-    modelAliasService = { listEnabled: jest.fn().mockResolvedValue([]) };
+    modelAliasService = {
+      listEnabled: jest.fn().mockResolvedValue([]),
+      resolveModelRequest: jest.fn().mockResolvedValue({
+        kind: 'resolved',
+        resolved: {
+          route: { provider: 'openai', authType: 'api_key', model: 'gpt-5' },
+          fallback_routes: null,
+        },
+      }),
+    };
     mockMessageManager = {
       transaction: jest.fn(async (cb: (manager: unknown) => Promise<unknown>) =>
         cb(mockMessageManager),
@@ -170,6 +180,9 @@ describe('ProxyController', () => {
     };
     providerParamSpecs = {
       getSpecs: jest.fn().mockResolvedValue([]),
+    };
+    resolveService = {
+      getAvailableRouteChains: jest.fn().mockResolvedValue([]),
     };
     const mockCustomProviders = {
       canonicalizeAgentMessageKeys: jest
@@ -203,6 +216,7 @@ describe('ProxyController', () => {
       modelAliasService as never,
       modelDiscovery as never,
       providerParamSpecs as never,
+      resolveService as never,
     );
   });
 
@@ -211,7 +225,8 @@ describe('ProxyController', () => {
   });
 
   it('should expose /v1/models as an OpenAI-compatible list with the Manifest auto routes', async () => {
-    await expect(controller.models(mockRequest({}) as never)).resolves.toEqual({
+    const result = await controller.models(mockRequest({}) as never);
+    expect(result).toEqual({
       object: 'list',
       data: [
         {
@@ -256,53 +271,90 @@ describe('ProxyController', () => {
       makeDiscoveredModel({ id: 'gpt-4o', provider: 'openai', authType: 'api_key' }),
     ]);
 
-    await expect(controller.models(mockRequest({}) as never)).resolves.toEqual({
-      object: 'list',
-      data: [
-        {
-          id: 'auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-        },
-        {
-          id: 'manifest/auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-        },
-        {
-          id: 'openai-api/gpt-5-high',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'GPT-5 High',
-        },
-        { id: 'openai/gpt-4o', object: 'model', created: 0, owned_by: 'openai' },
-        { id: 'openrouter/gpt-4o', object: 'model', created: 0, owned_by: 'openrouter' },
-        {
-          id: 'openai/gpt-4o-subscription',
-          object: 'model',
-          created: 0,
-          owned_by: 'openai',
-        },
-        {
-          id: 'opencode-go/glm-5.1-subscription',
-          object: 'model',
-          created: 0,
-          owned_by: 'opencode-go',
-        },
-        {
-          id: 'custom:provider-1/model-a',
-          object: 'model',
-          created: 0,
-          owned_by: 'custom:provider-1',
-        },
-      ],
-    });
+    const result = await controller.models(mockRequest({}) as never);
+    expect(result.object).toBe('list');
+    expect(result.data.map((model) => model.id)).toEqual([
+      'auto',
+      'manifest/auto',
+      'openai-api/gpt-5-high',
+      'openai/gpt-4o',
+      'openrouter/gpt-4o',
+      'openai/gpt-4o-subscription',
+      'opencode-go/glm-5.1-subscription',
+      'custom:provider-1/model-a',
+    ]);
+    expect(result.data[0]).toEqual(
+      expect.objectContaining({ context_window: 128000, context_length: 128000 }),
+    );
+    expect(result.data.find((model) => model.id === 'openai/gpt-4o')).toEqual(
+      expect.objectContaining({
+        object: 'model',
+        created: 0,
+        owned_by: 'openai',
+        context_window: 128000,
+        context_length: 128000,
+      }),
+    );
     expect(modelAliasService.listEnabled).toHaveBeenCalledWith('agent-1');
+  });
+
+  it('should expose context metadata from auto routes, aliases, and raw provider models', async () => {
+    modelAliasService.listEnabled.mockResolvedValue([
+      { model_id: 'balanced', display_name: 'Balanced' },
+    ]);
+    modelAliasService.resolveModelRequest.mockResolvedValue({
+      kind: 'resolved',
+      resolved: {
+        route: { provider: 'openai', authType: 'api_key', model: 'gpt-large' },
+        fallback_routes: [{ provider: 'deepseek', authType: 'api_key', model: 'deepseek-small' }],
+      },
+    });
+    modelDiscovery.getModelsForAgent.mockResolvedValue([
+      makeDiscoveredModel({
+        id: 'gpt-large',
+        provider: 'openai',
+        authType: 'api_key',
+        contextWindow: 200000,
+      }),
+      makeDiscoveredModel({
+        id: 'deepseek-small',
+        provider: 'deepseek',
+        authType: 'api_key',
+        contextWindow: 16000,
+      }),
+    ]);
+    resolveService.getAvailableRouteChains.mockResolvedValue([
+      {
+        primaryRoute: { provider: 'openai', authType: 'api_key', model: 'gpt-large' },
+        fallbackRoutes: [{ provider: 'deepseek', authType: 'api_key', model: 'deepseek-small' }],
+      },
+    ]);
+
+    const result = await controller.models(mockRequest({}) as never);
+
+    expect(result.data.find((model) => model.id === 'auto')).toEqual(
+      expect.objectContaining({ context_window: 16000, context_length: 16000 }),
+    );
+    expect(result.data.find((model) => model.id === 'balanced')).toEqual(
+      expect.objectContaining({ context_window: 16000, context_length: 16000 }),
+    );
+    expect(result.data.find((model) => model.id === 'openai/gpt-large')).toEqual(
+      expect.objectContaining({ context_window: 200000, context_length: 200000 }),
+    );
+  });
+
+  it('should omit aliases that no longer resolve to an available route', async () => {
+    modelAliasService.listEnabled.mockResolvedValue([
+      { model_id: 'hidden-alias', display_name: 'Hidden alias' },
+    ]);
+    modelAliasService.resolveModelRequest.mockResolvedValue({
+      kind: 'resolved',
+      resolved: { route: null, fallback_routes: null },
+    });
+
+    const result = await controller.models(mockRequest({}) as never);
+
+    expect(result.data.map((model) => model.id)).not.toContain('hidden-alias');
   });
 
   it('should include Manifest reasoning params only when requested', async () => {

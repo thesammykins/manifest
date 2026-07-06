@@ -33,6 +33,10 @@ import {
 import { getZaiCodingPlanBaseUrl } from '../routing/zai-region';
 import { CopilotTokenService } from '../routing/proxy/copilot-token.service';
 import {
+  AgentModelFilterService,
+  type FilterableDiscoveredModel,
+} from './agent-model-filter.service';
+import {
   findOpenRouterPrefix,
   lookupWithVariants,
   buildFallbackModels,
@@ -85,6 +89,10 @@ interface DiscoverModelsOptions {
   skipModelsDevRefresh?: boolean;
 }
 
+interface FetchModelsForAgentOptions {
+  includeDisabled?: boolean;
+}
+
 @Injectable()
 export class ModelDiscoveryService {
   private readonly logger = new Logger(ModelDiscoveryService.name);
@@ -120,6 +128,9 @@ export class ModelDiscoveryService {
     @Optional()
     @InjectRepository(AgentEnabledProvider)
     private readonly enabledProviderRepo: Repository<AgentEnabledProvider> | null = null,
+    @Optional()
+    @Inject(AgentModelFilterService)
+    private readonly modelFilters: AgentModelFilterService | null = null,
   ) {}
 
   async discoverModels(
@@ -451,6 +462,15 @@ export class ModelDiscoveryService {
     return models;
   }
 
+  async getModelsForAgentWithFilterState(
+    tenantId: string,
+    agentId: string,
+  ): Promise<FilterableDiscoveredModel[]> {
+    const models = await this.fetchModelsForAgent(tenantId, agentId, { includeDisabled: true });
+    if (!this.modelFilters) return models.map((model) => ({ ...model, enabled: true }));
+    return this.modelFilters.withState(agentId, models);
+  }
+
   /**
    * Drop the cached model list for an agent. Called whenever the agent's
    * provider set or cached_models change so callers never see a stale list.
@@ -474,6 +494,7 @@ export class ModelDiscoveryService {
   private async fetchModelsForAgent(
     tenantId: string,
     agentId?: string,
+    options: FetchModelsForAgentOptions = {},
   ): Promise<DiscoveredModel[]> {
     const allProviders = await this.providerRepo.find({
       where: { tenant_id: tenantId, is_active: true },
@@ -549,6 +570,9 @@ export class ModelDiscoveryService {
       }
     }
 
+    if (agentId && !options.includeDisabled && this.modelFilters) {
+      return this.modelFilters.applyFilter(agentId, models);
+    }
     return models;
   }
 

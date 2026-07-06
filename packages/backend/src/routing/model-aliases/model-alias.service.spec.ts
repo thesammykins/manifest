@@ -41,7 +41,9 @@ describe('ModelAliasService', () => {
     >
   >;
   let headerTierService: jest.Mocked<Pick<HeaderTierService, 'list'>>;
-  let providerKeyService: jest.Mocked<Pick<ProviderKeyService, 'getDefaultKeyLabel'>>;
+  let providerKeyService: jest.Mocked<
+    Pick<ProviderKeyService, 'getDefaultKeyLabel' | 'isRouteAvailable'>
+  >;
   let providerParamSpecs: jest.Mocked<Pick<ProviderParamSpecService, 'getSpecs'>>;
   let service: ModelAliasService;
 
@@ -121,7 +123,10 @@ describe('ModelAliasService', () => {
       resolveForHeaderTierId: jest.fn(),
     };
     headerTierService = { list: jest.fn().mockResolvedValue([{ id: 'header-1' }]) };
-    providerKeyService = { getDefaultKeyLabel: jest.fn().mockResolvedValue('Default') };
+    providerKeyService = {
+      getDefaultKeyLabel: jest.fn().mockResolvedValue('Default'),
+      isRouteAvailable: jest.fn().mockResolvedValue(true),
+    };
     providerParamSpecs = { getSpecs: jest.fn().mockResolvedValue([]) };
     service = new ModelAliasService(
       repo as unknown as Repository<ExposedModelRoute>,
@@ -204,6 +209,44 @@ describe('ModelAliasService', () => {
       expect(result.requestParams).toEqual({ reasoning_effort: 'high' });
     }
     expect(resolveService.resolveForTier).not.toHaveBeenCalled();
+  });
+
+  it('promotes an available direct alias fallback when the primary route is hidden', async () => {
+    await service.create('agent-1', 'tenant-1', {
+      model_id: 'openai-api/stable',
+      source_kind: 'direct',
+      route: dtoRoute('openai', 'api_key', 'gpt-5'),
+      fallback_routes: [dtoRoute('openai', 'api_key', 'gpt-4o-mini')],
+    });
+    providerKeyService.isRouteAvailable.mockImplementation(
+      async (_tenantId, candidate) => candidate.model === 'gpt-4o-mini',
+    );
+
+    const result = await service.resolveModelRequest('agent-1', 'tenant-1', 'openai-api/stable');
+
+    expect(result.kind).toBe('resolved');
+    if (result.kind === 'resolved') {
+      expect(result.resolved.route).toEqual({
+        provider: 'openai',
+        authType: 'api_key',
+        model: 'gpt-4o-mini',
+        keyLabel: 'Default',
+      });
+      expect(result.resolved.fallback_routes).toBeNull();
+    }
+  });
+
+  it('rejects direct aliases when the primary and fallbacks are hidden', async () => {
+    await service.create('agent-1', 'tenant-1', {
+      model_id: 'openai-api/hidden',
+      source_kind: 'direct',
+      route: dtoRoute('openai', 'api_key', 'gpt-5'),
+    });
+    providerKeyService.isRouteAvailable.mockResolvedValue(false);
+
+    await expect(
+      service.resolveModelRequest('agent-1', 'tenant-1', 'openai-api/hidden'),
+    ).rejects.toThrow(NotFoundException);
   });
 
   it('resolves tier aliases through the current tier route', async () => {

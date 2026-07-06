@@ -395,6 +395,36 @@ export function getAvailableModels(agentName: string) {
   return fetchJson<AvailableModel[]>(routingPath(agentName, 'available-models'));
 }
 
+/* -- Routing: Provider Model Exposure -- */
+
+export interface ModelFilterRow {
+  provider: string;
+  auth_type: AuthType;
+  model_name: string;
+  display_name: string | null;
+  context_window: number | null;
+  enabled: boolean;
+}
+
+export interface SetModelFilterInput {
+  provider: string;
+  auth_type: AuthType;
+  model_name: string;
+  enabled: boolean;
+}
+
+export function getModelFilters(agentName: string) {
+  return fetchJson<ModelFilterRow[]>(routingPath(agentName, 'model-filters'));
+}
+
+export function setModelFilterEnabled(agentName: string, data: SetModelFilterInput) {
+  return fetchMutate<ModelFilterRow>(routingPath(agentName, 'model-filters'), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
 export function refreshModels(agentName: string) {
   return fetchMutate<{ ok: boolean }>(routingPath(agentName, 'refresh-models'), {
     method: 'POST',

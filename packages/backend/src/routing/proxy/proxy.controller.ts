@@ -24,6 +24,8 @@ import { ReasoningContentCache } from './reasoning-content-cache';
 import { ModelAliasService } from '../model-aliases/model-alias.service';
 import { ModelDiscoveryService } from '../../model-discovery/model-discovery.service';
 import { ProviderParamSpecService } from '../routing-core/provider-param-spec.service';
+import { ResolveService } from '../resolve/resolve.service';
+import type { ExposedModelRoute } from '../../entities/exposed-model-route.entity';
 import { classifyCaller } from './caller-classifier';
 import { sanitizeRequestHeaders } from './request-headers';
 import {
@@ -55,6 +57,8 @@ interface OpenAiModelObject {
   object: 'model';
   created: number;
   owned_by: string;
+  context_window?: number;
+  context_length?: number;
   display_name?: string;
   type?: 'model';
   manifest_params?: ManifestModelParam[];
@@ -93,6 +97,7 @@ export class ProxyController {
     private readonly modelAliasService: ModelAliasService,
     private readonly modelDiscovery: ModelDiscoveryService,
     private readonly providerParamSpecs: ProviderParamSpecService,
+    private readonly resolveService: ResolveService,
   ) {}
 
   @Get('models')
@@ -107,25 +112,38 @@ export class ProxyController {
         req.ingestionContext.agentId,
       ),
     ]);
-    const data: OpenAiModelObject[] = [
-      {
-        id: 'auto',
-        object: 'model',
-        created: MODEL_CREATED_UNKNOWN,
-        owned_by: 'manifest',
-        display_name: 'Manifest Auto',
-      },
-      {
-        id: 'manifest/auto',
-        object: 'model',
-        created: MODEL_CREATED_UNKNOWN,
-        owned_by: 'manifest',
-        display_name: 'Manifest Auto',
-      },
-    ];
+    const autoContext = await this.autoContextWindow(
+      req.ingestionContext.agentId,
+      req.ingestionContext.tenantId,
+      models,
+    );
+    const autoRow: OpenAiModelObject = {
+      id: 'auto',
+      object: 'model',
+      created: MODEL_CREATED_UNKNOWN,
+      owned_by: 'manifest',
+      display_name: 'Manifest Auto',
+    };
+    const manifestAutoRow: OpenAiModelObject = {
+      id: 'manifest/auto',
+      object: 'model',
+      created: MODEL_CREATED_UNKNOWN,
+      owned_by: 'manifest',
+      display_name: 'Manifest Auto',
+    };
+    addContextFields(autoRow, autoContext);
+    addContextFields(manifestAutoRow, autoContext);
+    const data: OpenAiModelObject[] = [autoRow, manifestAutoRow];
     const seen = new Set(data.map((model) => model.id.toLowerCase()));
 
     for (const alias of aliases) {
+      const aliasMetadata = await this.aliasModelMetadata(
+        req.ingestionContext.agentId,
+        req.ingestionContext.tenantId,
+        alias,
+        models,
+      );
+      if (!aliasMetadata) continue;
       const id = alias.model_id;
       const key = id.toLowerCase();
       if (seen.has(key)) continue;
@@ -137,8 +155,9 @@ export class ProxyController {
         owned_by: 'manifest',
         display_name: alias.display_name ?? id,
       };
-      if (includeManifestParams && alias.source_kind === 'direct' && alias.route) {
-        addManifestParams(row, await this.manifestParamsForRoute(alias.route));
+      addContextFields(row, aliasMetadata.contextWindow);
+      if (includeManifestParams && aliasMetadata.route) {
+        addManifestParams(row, await this.manifestParamsForRoute(aliasMetadata.route));
       }
       data.push(row);
     }
@@ -162,6 +181,7 @@ export class ProxyController {
         created: MODEL_CREATED_UNKNOWN,
         owned_by: model.provider,
       };
+      addContextFields(row, model.contextWindow);
       if (includeManifestParams) addManifestParams(row, params);
       data.push(row);
       addReasoningVariantRows(data, seen, row, params);
@@ -186,6 +206,49 @@ export class ProxyController {
       values: spec.values?.filter((value): value is string => typeof value === 'string') ?? [],
       ...(typeof spec.default === 'string' ? { default: spec.default } : {}),
     }));
+  }
+
+  private async autoContextWindow(
+    agentId: string,
+    tenantId: string,
+    models: Awaited<ReturnType<ModelDiscoveryService['getModelsForAgent']>>,
+  ): Promise<number | null> {
+    const routeChains = await this.resolveService.getAvailableRouteChains(agentId, tenantId);
+    const routedContexts: number[] = [];
+    for (const chain of routeChains) {
+      const routeContext = contextForRouteChain(chain.primaryRoute, chain.fallbackRoutes, models);
+      if (routeContext !== null) routedContexts.push(routeContext);
+    }
+    if (routeChains.length > 0) return minFiniteContext(routedContexts);
+    return minFiniteContext(models.map((model) => model.contextWindow));
+  }
+
+  private async aliasModelMetadata(
+    agentId: string,
+    tenantId: string,
+    alias: ExposedModelRoute,
+    models: Awaited<ReturnType<ModelDiscoveryService['getModelsForAgent']>>,
+  ): Promise<{ route: ModelRoute | null; contextWindow: number | null } | null> {
+    try {
+      const resolution = await this.modelAliasService.resolveModelRequest(
+        agentId,
+        tenantId,
+        alias.model_id,
+        { includeRawDirect: false },
+      );
+      if (resolution.kind !== 'resolved') return null;
+      const route = resolution.resolved.route;
+      const fallbackRoutes = resolution.resolved.fallback_routes;
+      if (!route && (!fallbackRoutes || fallbackRoutes.length === 0)) return null;
+      return {
+        route,
+        contextWindow: contextForRouteChain(route, fallbackRoutes, models),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug(`Skipping unavailable model alias ${alias.model_id}: ${message}`);
+      return null;
+    }
   }
 
   @Post('chat/completions')
@@ -505,9 +568,51 @@ function addReasoningVariantRows(
       object: 'model',
       created: base.created,
       owned_by: base.owned_by,
+      context_window: base.context_window,
+      context_length: base.context_length,
       type: base.type,
     });
   }
+}
+
+function addContextFields(row: OpenAiModelObject, value: number | null | undefined): void {
+  const context = finiteContext(value);
+  if (context === null) return;
+  row.context_window = context;
+  row.context_length = context;
+}
+
+function contextForRouteChain(
+  primaryRoute: ModelRoute | null,
+  fallbackRoutes: ModelRoute[] | null,
+  models: Awaited<ReturnType<ModelDiscoveryService['getModelsForAgent']>>,
+): number | null {
+  const contexts = [primaryRoute, ...(fallbackRoutes ?? [])]
+    .map((route) => (route ? contextForRoute(route, models) : null))
+    .filter((value): value is number => value !== null);
+  return minFiniteContext(contexts);
+}
+
+function contextForRoute(
+  route: ModelRoute,
+  models: Awaited<ReturnType<ModelDiscoveryService['getModelsForAgent']>>,
+): number | null {
+  const model = models.find(
+    (candidate) =>
+      candidate.provider.toLowerCase() === route.provider.toLowerCase() &&
+      (!route.authType || candidate.authType === route.authType) &&
+      candidate.id === route.model,
+  );
+  return finiteContext(model?.contextWindow);
+}
+
+function minFiniteContext(values: Array<number | null | undefined>): number | null {
+  const finite = values.map(finiteContext).filter((value): value is number => value !== null);
+  return finite.length > 0 ? Math.min(...finite) : null;
+}
+
+function finiteContext(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function isReasoningEnumSpec(spec: ProviderParamSpec): boolean {

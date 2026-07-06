@@ -6,6 +6,7 @@ import { TenantProvider } from '../../entities/tenant-provider.entity';
 import { AgentEnabledProvider } from '../../entities/agent-enabled-provider.entity';
 import { ModelPricingCacheService } from '../../model-prices/model-pricing-cache.service';
 import { ModelDiscoveryService } from '../../model-discovery/model-discovery.service';
+import { AgentModelFilterService } from '../../model-discovery/agent-model-filter.service';
 import { CachedProviderKey, RoutingCacheService } from './routing-cache.service';
 import { ProviderService } from './provider.service';
 import { decrypt, getEncryptionSecret } from '../../common/utils/crypto.util';
@@ -37,6 +38,8 @@ export class ProviderKeyService {
     @Optional()
     @InjectRepository(AgentEnabledProvider)
     private readonly enabledProviderRepo: Repository<AgentEnabledProvider> | null = null,
+    @Optional()
+    private readonly modelFilters: AgentModelFilterService | null = null,
   ) {}
 
   /**
@@ -353,6 +356,9 @@ export class ProviderKeyService {
    * legacy name-only behavior.
    */
   async isRouteAvailable(tenantId: string, route: ModelRoute, agentId?: string): Promise<boolean> {
+    if (agentId && this.modelFilters && (await this.modelFilters.isRouteDisabled(agentId, route))) {
+      return false;
+    }
     if (!route.provider) {
       return this.isModelAvailable(tenantId, route.model, agentId);
     }

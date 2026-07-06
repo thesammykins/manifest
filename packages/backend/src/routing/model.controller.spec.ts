@@ -2,6 +2,7 @@ import { ModelController } from './model.controller';
 import { ResolveAgentService } from './routing-core/resolve-agent.service';
 import { CustomProviderService } from './custom-provider/custom-provider.service';
 import { ModelDiscoveryService } from '../model-discovery/model-discovery.service';
+import { AgentModelFilterService } from '../model-discovery/agent-model-filter.service';
 import { OpencodeGoCatalogService } from '../model-discovery/opencode-go-catalog.service';
 import { OllamaSyncService } from '../database/ollama-sync.service';
 import { PricingSyncService } from '../database/pricing-sync.service';
@@ -40,11 +41,14 @@ describe('ModelController', () => {
   let mockProviderParamSpecs: Record<string, jest.Mock>;
   let mockModelsDevSync: Record<string, jest.Mock>;
   let mockOpencodeGoCatalog: Record<string, jest.Mock>;
+  let mockModelFilters: Record<string, jest.Mock>;
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockDiscoveryService = {
       getModelsForAgent: jest.fn().mockResolvedValue([]),
+      getModelsForAgentWithFilterState: jest.fn().mockResolvedValue([]),
+      invalidate: jest.fn(),
       discoverAllForAgent: jest.fn().mockResolvedValue(undefined),
       refreshProvider: jest.fn().mockResolvedValue({
         ok: true,
@@ -80,6 +84,9 @@ describe('ModelController', () => {
     mockOpencodeGoCatalog = {
       resolveCostPerRequest: jest.fn().mockResolvedValue(null),
     };
+    mockModelFilters = {
+      setModelEnabled: jest.fn().mockResolvedValue(undefined),
+    };
 
     controller = new ModelController(
       mockDiscoveryService as unknown as ModelDiscoveryService,
@@ -90,6 +97,7 @@ describe('ModelController', () => {
       mockProviderParamSpecs as unknown as ProviderParamSpecService,
       mockModelsDevSync as unknown as ModelsDevSyncService,
       mockOpencodeGoCatalog as unknown as OpencodeGoCatalogService,
+      mockModelFilters as unknown as AgentModelFilterService,
     );
   });
 
@@ -509,6 +517,91 @@ describe('ModelController', () => {
 
       expect(result[0].display_name).toBe('GPT-4o');
       expect(result[0]).not.toHaveProperty('provider_display_name');
+    });
+  });
+
+  describe('model filters', () => {
+    it('lists provider model exposure rows including hidden models', async () => {
+      mockDiscoveryService.getModelsForAgentWithFilterState.mockResolvedValue([
+        {
+          ...makeDiscovered({
+            id: 'gpt-4o',
+            provider: 'openai',
+            authType: 'api_key',
+            displayName: 'GPT-4o',
+            contextWindow: 128000,
+          }),
+          enabled: false,
+        },
+      ]);
+
+      const result = await controller.getModelFilters(mockCtx, mockAgentName);
+
+      expect(mockDiscoveryService.getModelsForAgentWithFilterState).toHaveBeenCalledWith(
+        TEST_TENANT_ID,
+        TEST_AGENT_ID,
+      );
+      expect(result).toEqual([
+        {
+          provider: 'openai',
+          auth_type: 'api_key',
+          model_name: 'gpt-4o',
+          display_name: 'GPT-4o',
+          context_window: 128000,
+          enabled: false,
+        },
+      ]);
+    });
+
+    it('stores disabled state sparsely and invalidates the visible model cache', async () => {
+      mockDiscoveryService.getModelsForAgentWithFilterState.mockResolvedValue([
+        {
+          ...makeDiscovered({
+            id: 'gpt-4o',
+            provider: 'openai',
+            authType: 'api_key',
+            displayName: 'GPT-4o',
+          }),
+          enabled: true,
+        },
+      ]);
+
+      const result = await controller.patchModelFilter(mockCtx, mockAgentName, {
+        provider: 'OpenAI',
+        auth_type: 'api_key',
+        model_name: 'GPT-4O',
+        enabled: false,
+      });
+
+      expect(mockModelFilters.setModelEnabled).toHaveBeenCalledWith(
+        TEST_TENANT_ID,
+        TEST_AGENT_ID,
+        { provider: 'openai', authType: 'api_key', modelId: 'gpt-4o' },
+        false,
+      );
+      expect(mockDiscoveryService.invalidate).toHaveBeenCalledWith(TEST_AGENT_ID);
+      expect(result).toEqual(
+        expect.objectContaining({
+          provider: 'openai',
+          auth_type: 'api_key',
+          model_name: 'gpt-4o',
+          enabled: false,
+        }),
+      );
+    });
+
+    it('rejects toggles for unknown provider model tuples', async () => {
+      mockDiscoveryService.getModelsForAgentWithFilterState.mockResolvedValue([]);
+
+      await expect(
+        controller.patchModelFilter(mockCtx, mockAgentName, {
+          provider: 'openai',
+          auth_type: 'api_key',
+          model_name: 'missing',
+          enabled: false,
+        }),
+      ).rejects.toThrow(/not available/);
+      expect(mockModelFilters.setModelEnabled).not.toHaveBeenCalled();
     });
   });
 });

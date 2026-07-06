@@ -14,6 +14,7 @@ import { buildPipelineHelp } from '../components/RoutingPipelineCard.js';
 import RoutingTabs from '../components/RoutingTabs.js';
 import ResponseModeModal from '../components/ResponseModeModal.js';
 import ModelAliasesPanel from '../components/ModelAliasesPanel.js';
+import ProviderModelExposurePanel from '../components/ProviderModelExposurePanel.js';
 import { toast } from '../services/toast-store.js';
 import { agentDisplayName } from '../services/agent-display-name.js';
 import SetupModal from '../components/SetupModal.jsx';
@@ -44,6 +45,8 @@ import {
   overrideSpecificity,
   resetSpecificity,
   refreshModels,
+  getModelFilters,
+  setModelFilterEnabled,
   getPricingHealth,
   getComplexityStatus,
   toggleComplexity,
@@ -61,6 +64,7 @@ import {
   type AuthType,
   type CreateModelAliasInput,
   type ModelAlias,
+  type ModelFilterRow,
   type ModelAliasSourceKind,
   type RequestParamDefaults,
   type ResponseMode,
@@ -104,6 +108,11 @@ const Routing: Component = () => {
     () => agentName(),
     getAvailableModels,
   );
+  const [modelFilters, { refetch: refetchModelFilters, mutate: mutateModelFilters }] =
+    createResource(
+      () => agentName(),
+      (name) => getModelFilters(name).catch(() => []),
+    );
   const [connectedProviders, { refetch: refetchProviders }] = createResource(
     () => agentName(),
     getProviders,
@@ -293,6 +302,26 @@ const Routing: Component = () => {
     }
   };
 
+  const handleToggleModelFilter = async (row: ModelFilterRow, enabled: boolean) => {
+    try {
+      const updated = await setModelFilterEnabled(agentName(), { ...row, enabled });
+      mutateModelFilters((prev) =>
+        (prev ?? []).map((candidate) =>
+          candidate.provider.toLowerCase() === updated.provider.toLowerCase() &&
+          candidate.auth_type === updated.auth_type &&
+          candidate.model_name.toLowerCase() === updated.model_name.toLowerCase()
+            ? updated
+            : candidate,
+        ),
+      );
+      await refetchModels();
+      await refetchModelAliases();
+      toast.success(enabled ? 'Model shown' : 'Model hidden');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update model exposure');
+    }
+  };
+
   const toggleRuleExposure = async (
     sourceKind: RuleAliasSourceKind,
     sourceKey: string,
@@ -443,6 +472,7 @@ const Routing: Component = () => {
       refetchHeaderTiers(),
       refetchEnabledProviders(),
       refetchModelAliases(),
+      refetchModelFilters(),
     ]);
   };
 
@@ -953,6 +983,12 @@ const Routing: Component = () => {
             getParamSpecs={(route) =>
               getModelParamSpecs(agentName(), route.provider, route.authType, route.model)
             }
+          />
+
+          <ProviderModelExposurePanel
+            rows={modelFilters() ?? []}
+            loading={modelFilters.loading}
+            onToggle={handleToggleModelFilter}
           />
 
           <RoutingFooter
