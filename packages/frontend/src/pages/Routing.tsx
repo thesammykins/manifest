@@ -47,6 +47,7 @@ import {
   refreshModels,
   getModelFilters,
   setModelFilterEnabled,
+  setModelFiltersEnabled,
   getPricingHealth,
   getComplexityStatus,
   toggleComplexity,
@@ -317,6 +318,47 @@ const Routing: Component = () => {
       await refetchModels();
       await refetchModelAliases();
       toast.success(enabled ? 'Model shown' : 'Model hidden');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update model exposure');
+    }
+  };
+
+  const handleToggleModelFilters = async (rows: ModelFilterRow[], enabled: boolean) => {
+    if (rows.length === 0) return;
+    const [first] = rows;
+    const providerScope = rows.every(
+      (row) => row.provider === first.provider && row.auth_type === first.auth_type,
+    );
+    try {
+      const result = await setModelFiltersEnabled(
+        agentName(),
+        providerScope
+          ? { provider: first.provider, auth_type: first.auth_type, enabled }
+          : { enabled },
+      );
+      if (result.updated === 0) return;
+      const affected = new Set(
+        rows.map(
+          (row) =>
+            `${row.provider.toLowerCase()}::${row.auth_type}::${row.model_name.toLowerCase()}`,
+        ),
+      );
+      mutateModelFilters((prev) =>
+        (prev ?? []).map((row) =>
+          affected.has(
+            `${row.provider.toLowerCase()}::${row.auth_type}::${row.model_name.toLowerCase()}`,
+          )
+            ? { ...row, enabled }
+            : row,
+        ),
+      );
+      await refetchModels();
+      await refetchModelAliases();
+      toast.success(
+        enabled
+          ? `Showing ${result.updated} model${result.updated === 1 ? '' : 's'}`
+          : `Hiding ${result.updated} model${result.updated === 1 ? '' : 's'}`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update model exposure');
     }
@@ -989,6 +1031,7 @@ const Routing: Component = () => {
             rows={modelFilters() ?? []}
             loading={modelFilters.loading}
             onToggle={handleToggleModelFilter}
+            onToggleAll={handleToggleModelFilters}
           />
 
           <RoutingFooter

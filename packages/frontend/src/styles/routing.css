@@ -2152,13 +2152,24 @@
   font-size: var(--font-size-xs);
 }
 
-.provider-model-exposure-panel__group-header span:first-child {
+.provider-model-exposure-panel__group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.provider-model-exposure-panel__group-title span:first-child {
   color: hsl(var(--foreground));
   font-size: var(--font-size-sm);
   font-weight: 600;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-model-exposure-panel__count {
   white-space: nowrap;
 }
 
@@ -2218,6 +2229,10 @@
   .provider-model-exposure-panel__group-header,
   .provider-model-exposure-panel__row {
     grid-template-columns: 1fr;
+  }
+
+  .provider-model-exposure-panel__header {
+    flex-direction: column;
   }
 }
 

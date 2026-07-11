@@ -105,6 +105,63 @@ export class AgentModelFilterService {
       }),
     );
   }
+
+  async setModelsEnabled(
+    tenantId: string,
+    agentId: string,
+    keys: ModelFilterKey[],
+    enabled: boolean,
+  ): Promise<void> {
+    const uniqueKeys = [
+      ...new Map(
+        keys.map((key) => {
+          const normalized = normalizeKey(key);
+          return [
+            filterKey(normalized.provider, normalized.authType, normalized.modelId),
+            normalized,
+          ];
+        }),
+      ).values(),
+    ];
+    if (uniqueKeys.length === 0) return;
+
+    if (enabled) {
+      const params: Record<string, string> = { agentId };
+      const conditions = uniqueKeys.map((key, index) => {
+        params[`provider${index}`] = key.provider;
+        params[`authType${index}`] = key.authType;
+        params[`modelId${index}`] = key.modelId;
+        return `(LOWER(provider) = :provider${index} AND auth_type = :authType${index} AND LOWER(model_id) = :modelId${index})`;
+      });
+      await this.repo
+        .createQueryBuilder()
+        .delete()
+        .where('agent_id = :agentId', params)
+        .andWhere(`(${conditions.join(' OR ')})`, params)
+        .execute();
+      return;
+    }
+
+    const now = new Date().toISOString();
+    await this.repo
+      .createQueryBuilder()
+      .insert()
+      .into(AgentModelFilter)
+      .values(
+        uniqueKeys.map((key) => ({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          agent_id: agentId,
+          provider: key.provider,
+          auth_type: key.authType,
+          model_id: key.modelId,
+          created_at: now,
+          updated_at: now,
+        })),
+      )
+      .orIgnore()
+      .execute();
+  }
 }
 
 function filterKeyForModel(model: DiscoveredModel): string {

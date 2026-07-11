@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getModelFilters, setModelFilterEnabled } from '../../src/services/api/routing.js';
+import {
+  getModelFilters,
+  setModelFilterEnabled,
+  setModelFiltersEnabled,
+} from '../../src/services/api/routing.js';
 
 describe('model filter API helpers', () => {
   beforeEach(() => {
@@ -60,6 +64,28 @@ describe('model filter API helpers', () => {
           model_name: 'gpt-4o',
           enabled: false,
         }),
+      }),
+    );
+  });
+
+  it('patches a whole provider catalog at once', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ updated: 4 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      setModelFiltersEnabled('test agent', {
+        provider: 'openai',
+        auth_type: 'api_key',
+        enabled: false,
+      }),
+    ).resolves.toEqual({ updated: 4 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/routing/test%20agent/model-filters/bulk',
+      expect.objectContaining({
+        credentials: 'include',
+        method: 'PATCH',
+        body: JSON.stringify({ provider: 'openai', auth_type: 'api_key', enabled: false }),
       }),
     );
   });

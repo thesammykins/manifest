@@ -32,7 +32,7 @@ const rows: ModelFilterRow[] = [
 
 describe('ProviderModelExposurePanel', () => {
   it('renders visible and hidden models grouped by provider/auth type', () => {
-    render(() => <ProviderModelExposurePanel rows={rows} onToggle={vi.fn()} />);
+    render(() => <ProviderModelExposurePanel rows={rows} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
 
     expect(screen.getByText('Provider model exposure')).toBeTruthy();
     expect(screen.getByText('Openai')).toBeTruthy();
@@ -40,17 +40,48 @@ describe('ProviderModelExposurePanel', () => {
     expect(screen.getByText('GPT-4o')).toBeTruthy();
     expect(screen.getByText('gpt-4o-mini')).toBeTruthy();
     expect(screen.getAllByText('128,000 ctx')).toHaveLength(2);
-    expect(screen.getByText('1/2')).toBeTruthy();
+    expect(screen.getByText('1 of 2 shown')).toBeTruthy();
   });
 
   it('toggles hidden models back on', async () => {
     const onToggle = vi.fn().mockResolvedValue(undefined);
-    render(() => <ProviderModelExposurePanel rows={rows} onToggle={onToggle} />);
+    render(() => <ProviderModelExposurePanel rows={rows} onToggle={onToggle} onToggleAll={vi.fn()} />);
 
     fireEvent.click(screen.getByText('Show'));
 
     await waitFor(() => {
       expect(onToggle).toHaveBeenCalledWith(rows[1], true);
+    });
+  });
+
+  it('hides every model from one action', async () => {
+    const onToggleAll = vi.fn().mockResolvedValue(undefined);
+    render(() => <ProviderModelExposurePanel rows={rows} onToggle={vi.fn()} onToggleAll={onToggleAll} />);
+
+    fireEvent.click(screen.getByText('Hide all models'));
+
+    await waitFor(() => {
+      expect(onToggleAll).toHaveBeenCalledWith(rows, false);
+    });
+  });
+
+  it('restores just one provider/auth catalog when it is fully hidden', async () => {
+    const onToggleAll = vi.fn().mockResolvedValue(undefined);
+    const hiddenOpenAiRows = rows.map((row) =>
+      row.provider === 'openai' ? { ...row, enabled: false } : row,
+    );
+    render(() => (
+      <ProviderModelExposurePanel
+        rows={hiddenOpenAiRows}
+        onToggle={vi.fn()}
+        onToggleAll={onToggleAll}
+      />
+    ));
+
+    fireEvent.click(screen.getByText('Show all'));
+
+    await waitFor(() => {
+      expect(onToggleAll).toHaveBeenCalledWith(hiddenOpenAiRows.slice(0, 2), true);
     });
   });
 });

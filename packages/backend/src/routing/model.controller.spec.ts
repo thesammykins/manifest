@@ -86,6 +86,7 @@ describe('ModelController', () => {
     };
     mockModelFilters = {
       setModelEnabled: jest.fn().mockResolvedValue(undefined),
+      setModelsEnabled: jest.fn().mockResolvedValue(undefined),
     };
 
     controller = new ModelController(
@@ -602,6 +603,52 @@ describe('ModelController', () => {
         }),
       ).rejects.toThrow(/not available/);
       expect(mockModelFilters.setModelEnabled).not.toHaveBeenCalled();
+    });
+
+    it('bulk updates one provider catalog and invalidates the visible model cache once', async () => {
+      mockDiscoveryService.getModelsForAgentWithFilterState.mockResolvedValue([
+        {
+          ...makeDiscovered({ id: 'gpt-4o', provider: 'openai', authType: 'api_key' }),
+          enabled: true,
+        },
+        {
+          ...makeDiscovered({ id: 'gpt-4o-mini', provider: 'openai', authType: 'api_key' }),
+          enabled: true,
+        },
+        {
+          ...makeDiscovered({ id: 'claude-sonnet-4', provider: 'anthropic', authType: 'api_key' }),
+          enabled: true,
+        },
+      ]);
+
+      await expect(
+        controller.patchModelFilters(mockCtx, mockAgentName, {
+          provider: 'openai',
+          auth_type: 'api_key',
+          enabled: false,
+        }),
+      ).resolves.toEqual({ updated: 2 });
+
+      expect(mockModelFilters.setModelsEnabled).toHaveBeenCalledWith(
+        TEST_TENANT_ID,
+        TEST_AGENT_ID,
+        [
+          { provider: 'openai', authType: 'api_key', modelId: 'gpt-4o' },
+          { provider: 'openai', authType: 'api_key', modelId: 'gpt-4o-mini' },
+        ],
+        false,
+      );
+      expect(mockDiscoveryService.invalidate).toHaveBeenCalledWith(TEST_AGENT_ID);
+    });
+
+    it('requires a complete provider scope for bulk updates', async () => {
+      await expect(
+        controller.patchModelFilters(mockCtx, mockAgentName, {
+          provider: 'openai',
+          enabled: false,
+        }),
+      ).rejects.toThrow('Provider and auth type must be supplied together.');
+      expect(mockModelFilters.setModelsEnabled).not.toHaveBeenCalled();
     });
   });
 });

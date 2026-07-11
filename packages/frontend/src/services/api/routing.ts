@@ -435,12 +435,26 @@ export interface SetModelFilterInput {
   enabled: boolean;
 }
 
+export interface SetModelFiltersBulkInput {
+  provider?: string;
+  auth_type?: AuthType;
+  enabled: boolean;
+}
+
 export function getModelFilters(agentName: string) {
   return fetchJson<ModelFilterRow[]>(routingPath(agentName, 'model-filters'));
 }
 
 export function setModelFilterEnabled(agentName: string, data: SetModelFilterInput) {
   return fetchMutate<ModelFilterRow>(routingPath(agentName, 'model-filters'), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export function setModelFiltersEnabled(agentName: string, data: SetModelFiltersBulkInput) {
+  return fetchMutate<{ updated: number }>(routingPath(agentName, 'model-filters/bulk'), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),

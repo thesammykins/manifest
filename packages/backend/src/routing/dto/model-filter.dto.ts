@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsNotEmpty, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { AUTH_TYPES, type AuthType } from 'manifest-shared';
 
 function trimString(value: unknown): unknown {
@@ -19,6 +19,21 @@ export class SetModelFilterDto {
   @IsNotEmpty()
   @Transform(({ value }) => trimString(value))
   model_name!: string;
+
+  @IsBoolean()
+  enabled!: boolean;
+}
+
+export class SetModelFilterBulkDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @Transform(({ value }) => trimString(value))
+  provider?: string;
+
+  @IsOptional()
+  @IsIn(AUTH_TYPES)
+  auth_type?: AuthType;
 
   @IsBoolean()
   enabled!: boolean;

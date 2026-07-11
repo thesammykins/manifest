@@ -28,6 +28,7 @@ const mockSetModelAliasEnabled = vi.fn();
 const mockDeleteModelAlias = vi.fn();
 const mockGetModelFilters = vi.fn();
 const mockSetModelFilterEnabled = vi.fn();
+const mockSetModelFiltersEnabled = vi.fn();
 const mockGetAutofix = vi.fn(() => Promise.resolve({ enabled: false }));
 const mockUpdateAutofix = vi.fn(() => Promise.resolve({ enabled: false }));
 
@@ -60,6 +61,7 @@ vi.mock('../../src/services/api.js', () => ({
   deleteModelAlias: (...args: unknown[]) => mockDeleteModelAlias(...args),
   getModelFilters: (...args: unknown[]) => mockGetModelFilters(...args),
   setModelFilterEnabled: (...args: unknown[]) => mockSetModelFilterEnabled(...args),
+  setModelFiltersEnabled: (...args: unknown[]) => mockSetModelFiltersEnabled(...args),
   getAutofix: (...args: unknown[]) => mockGetAutofix(...args),
   updateAutofix: (...args: unknown[]) => mockUpdateAutofix(...args),
   modelParamsKey: (scope: string, provider: string, authType: string, model: string) =>

@@ -30,7 +30,7 @@ import {
   AgentProviderParamDto,
   RemoveProviderQueryDto,
 } from './dto/routing.dto';
-import { SetModelFilterDto } from './dto/model-filter.dto';
+import { SetModelFilterBulkDto, SetModelFilterDto } from './dto/model-filter.dto';
 
 function formatModelSlug(slug: string): string {
   return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -261,6 +261,41 @@ export class ModelController {
       capId.model,
     );
     return filterRowForModel({ ...model, enabled: body.enabled }, modelsDevEntry?.name);
+  }
+
+  @Patch(':agentName/model-filters/bulk')
+  async patchModelFilters(
+    @TenantCtx() ctx: TenantContext,
+    @Param() params: AgentNameParamDto,
+    @Body() body: SetModelFilterBulkDto,
+  ) {
+    if (Boolean(body.provider) !== Boolean(body.auth_type)) {
+      throw new BadRequestException('Provider and auth type must be supplied together.');
+    }
+
+    const agent = await this.resolveAgentService.resolve(ctx.tenantId, params.agentName);
+    const models = await this.discoveryService.getModelsForAgentWithFilterState(
+      agent.tenant_id,
+      agent.id,
+    );
+    const scopedModels = models.filter(
+      (model) =>
+        !body.provider ||
+        (model.provider.toLowerCase() === body.provider.toLowerCase() &&
+          (model.authType ?? 'api_key') === body.auth_type),
+    );
+    await this.modelFilters.setModelsEnabled(
+      agent.tenant_id,
+      agent.id,
+      scopedModels.map((model) => ({
+        provider: model.provider,
+        authType: model.authType ?? 'api_key',
+        modelId: model.id,
+      })),
+      body.enabled,
+    );
+    this.discoveryService.invalidate(agent.id);
+    return { updated: scopedModels.length };
   }
 
   private async buildModelFilterRows(tenantId: string, agentId: string) {

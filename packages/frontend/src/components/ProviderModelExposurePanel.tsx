@@ -5,6 +5,7 @@ interface Props {
   rows: ModelFilterRow[];
   loading?: boolean;
   onToggle: (row: ModelFilterRow, enabled: boolean) => Promise<void>;
+  onToggleAll: (rows: ModelFilterRow[], enabled: boolean) => Promise<void>;
 }
 
 interface ModelFilterGroup {
@@ -47,13 +48,38 @@ const ProviderModelExposurePanel: Component<Props> = (props) => {
     }
   };
 
+  const toggleAll = async (key: string, rows: ModelFilterRow[], enabled: boolean) => {
+    setPendingKey(key);
+    try {
+      await props.onToggleAll(rows, enabled);
+    } finally {
+      setPendingKey(null);
+    }
+  };
+
+  const visibleCount = () => props.rows.filter((row) => row.enabled).length;
+  const allModelsAction = () => (visibleCount() > 0 ? 'Hide all models' : 'Show all models');
+
   return (
     <section class="provider-model-exposure-panel">
       <div class="provider-model-exposure-panel__header">
         <div>
           <h2 class="routing-section__title">Provider model exposure</h2>
-          <p class="routing-section__subtitle">Controls `/v1/models` and routing model pickers.</p>
+          <p class="routing-section__subtitle">
+            Hidden models are removed from `/v1/models`, pickers, and direct routes. Provider
+            connections are managed separately.
+          </p>
         </div>
+        <Show when={props.rows.length > 0}>
+          <button
+            type="button"
+            class="btn btn--outline btn--sm"
+            disabled={pendingKey() !== null}
+            onClick={() => void toggleAll('all', props.rows, visibleCount() === 0)}
+          >
+            {pendingKey() === 'all' ? 'Saving...' : allModelsAction()}
+          </button>
+        </Show>
       </div>
 
       <Show
@@ -68,11 +94,31 @@ const ProviderModelExposurePanel: Component<Props> = (props) => {
             {(group) => (
               <div class="provider-model-exposure-panel__group">
                 <div class="provider-model-exposure-panel__group-header">
-                  <span>{displayProvider(group.provider)}</span>
-                  <span>{authLabel(group.authType)}</span>
-                  <span>
-                    {group.rows.filter((row) => row.enabled).length}/{group.rows.length}
+                  <div class="provider-model-exposure-panel__group-title">
+                    <span>{displayProvider(group.provider)}</span>
+                    <span>{authLabel(group.authType)}</span>
+                  </div>
+                  <span class="provider-model-exposure-panel__count">
+                    {group.rows.filter((row) => row.enabled).length} of {group.rows.length} shown
                   </span>
+                  <button
+                    type="button"
+                    class="btn btn--outline btn--sm"
+                    disabled={pendingKey() !== null}
+                    onClick={() =>
+                      void toggleAll(
+                        group.key,
+                        group.rows,
+                        group.rows.every((row) => !row.enabled),
+                      )
+                    }
+                  >
+                    {pendingKey() === group.key
+                      ? 'Saving...'
+                      : group.rows.some((row) => row.enabled)
+                        ? 'Hide all'
+                        : 'Show all'}
+                  </button>
                 </div>
                 <div class="provider-model-exposure-panel__rows">
                   <For each={group.rows}>
@@ -98,7 +144,7 @@ const ProviderModelExposurePanel: Component<Props> = (props) => {
                         <button
                           type="button"
                           class="btn btn--outline btn--sm"
-                          disabled={pendingKey() === modelKey(row)}
+                          disabled={pendingKey() !== null}
                           onClick={() => void toggle(row)}
                         >
                           {pendingKey() === modelKey(row)
