@@ -305,7 +305,12 @@ const Routing: Component = () => {
 
   const handleToggleModelFilter = async (row: ModelFilterRow, enabled: boolean) => {
     try {
-      const updated = await setModelFilterEnabled(agentName(), { ...row, enabled });
+      const updated = await setModelFilterEnabled(agentName(), {
+        provider: row.provider,
+        auth_type: row.auth_type,
+        model_name: row.model_name,
+        enabled,
+      });
       mutateModelFilters((prev) =>
         (prev ?? []).map((candidate) =>
           candidate.provider.toLowerCase() === updated.provider.toLowerCase() &&

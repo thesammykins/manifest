@@ -446,10 +446,11 @@ export function getModelFilters(agentName: string) {
 }
 
 export function setModelFilterEnabled(agentName: string, data: SetModelFilterInput) {
+  const { provider, auth_type, model_name, enabled } = data;
   return fetchMutate<ModelFilterRow>(routingPath(agentName, 'model-filters'), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ provider, auth_type, model_name, enabled }),
   });
 }
 

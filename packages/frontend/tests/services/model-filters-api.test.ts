@@ -68,6 +68,44 @@ describe('model filter API helpers', () => {
     );
   });
 
+  it('strips display-only model fields from a model exposure toggle', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          provider: 'openai',
+          auth_type: 'api_key',
+          model_name: 'gpt-4o',
+          display_name: 'GPT-4o',
+          context_window: 128000,
+          enabled: false,
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const row = {
+      provider: 'openai',
+      auth_type: 'api_key' as const,
+      model_name: 'gpt-4o',
+      display_name: 'GPT-4o',
+      context_window: 128000,
+      enabled: true,
+    };
+
+    await setModelFilterEnabled('test agent', { ...row, enabled: false });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/routing/test%20agent/model-filters',
+      expect.objectContaining({
+        body: JSON.stringify({
+          provider: 'openai',
+          auth_type: 'api_key',
+          model_name: 'gpt-4o',
+          enabled: false,
+        }),
+      }),
+    );
+  });
+
   it('patches a whole provider catalog at once', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ updated: 4 })));
     vi.stubGlobal('fetch', fetchMock);
