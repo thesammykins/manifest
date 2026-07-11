@@ -144,6 +144,8 @@ describe('ProxyController streaming abort', () => {
       modelDiscovery as never,
       providerParamSpecs as never,
       resolveService as never,
+      { assertWithinRequestLimit: jest.fn().mockResolvedValue(undefined) } as never,
+      { report: jest.fn() } as never,
     );
   });
 

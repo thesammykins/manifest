@@ -18,9 +18,12 @@ export interface MessageRow {
   cost: number | null;
   status: string;
   error_message?: string | null;
-  /** WHO caused a failure: provider | transport | config | policy | internal. */
+  error_http_status?: number | null;
+  /** Documented Manifest error code ('M100', 'M300', …). Null for provider failures. */
+  error_code?: string | null;
+  /** WHO caused a failure: provider | transport | config | policy | internal | request. */
   error_origin?: string | null;
-  /** WHAT kind of failure it was (rate_limit, auth, no_provider_key, timeout, …). */
+  /** WHAT kind of failure it was (rate_limit, auth, billing, no_provider_key, timeout, …). */
   error_class?: string | null;
   auth_type?: string | null;
   fallback_from_model?: string | null;
@@ -29,6 +32,8 @@ export interface MessageRow {
   cache_creation_tokens?: number | null;
   duration_ms?: number | null;
   feedback_rating?: string | null;
+  autofix_applied?: boolean;
+  autofix_role?: string | null;
 }
 
 export function routingTierLabel(tier: string | null | undefined): string | undefined {
@@ -47,23 +52,25 @@ export type MessageColumnKey =
   | 'cache'
   | 'duration'
   | 'status'
-  | 'feedback'
+  | 'trigger'
   | 'agent';
 
 export const COMPACT_COLUMNS: MessageColumnKey[] = [
-  'feedback',
-  'date',
   'status',
+  'trigger',
+  'date',
   'model',
   'message',
   'cost',
   'totalTokens',
+  'cache',
+  'duration',
 ];
 
 export const DETAILED_COLUMNS: MessageColumnKey[] = [
-  'feedback',
-  'date',
   'status',
+  'trigger',
+  'date',
   'model',
   'message',
   'cost',

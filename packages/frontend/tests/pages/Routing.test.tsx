@@ -28,6 +28,8 @@ const mockSetModelAliasEnabled = vi.fn();
 const mockDeleteModelAlias = vi.fn();
 const mockGetModelFilters = vi.fn();
 const mockSetModelFilterEnabled = vi.fn();
+const mockGetAutofix = vi.fn(() => Promise.resolve({ enabled: false }));
+const mockUpdateAutofix = vi.fn(() => Promise.resolve({ enabled: false }));
 
 vi.mock('../../src/services/api.js', () => ({
   getTierAssignments: (...args: unknown[]) => mockGetTierAssignments(...args),
@@ -58,6 +60,8 @@ vi.mock('../../src/services/api.js', () => ({
   deleteModelAlias: (...args: unknown[]) => mockDeleteModelAlias(...args),
   getModelFilters: (...args: unknown[]) => mockGetModelFilters(...args),
   setModelFilterEnabled: (...args: unknown[]) => mockSetModelFilterEnabled(...args),
+  getAutofix: (...args: unknown[]) => mockGetAutofix(...args),
+  updateAutofix: (...args: unknown[]) => mockUpdateAutofix(...args),
   modelParamsKey: (scope: string, provider: string, authType: string, model: string) =>
     `${scope}::${provider.toLowerCase()}::${model}::${authType}`,
   // Re-export types only — no runtime impact

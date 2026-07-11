@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddAgentModelFilters1800000000000 implements MigrationInterface {
-  name = 'AddAgentModelFilters1800000000000';
+export class AddAgentModelFilters1800400000000 implements MigrationInterface {
+  name = 'AddAgentModelFilters1800400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

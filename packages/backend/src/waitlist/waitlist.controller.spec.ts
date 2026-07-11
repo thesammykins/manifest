@@ -1,30 +1,41 @@
 import { WaitlistController } from './waitlist.controller';
 import { WaitlistSyncService } from './waitlist-sync.service';
 import { Repository } from 'typeorm';
+import { Request } from 'express';
 import { Tenant } from '../entities/tenant.entity';
-import { AutofixWaitlistSignup } from '../entities/autofix-waitlist-signup.entity';
+import { WaitlistClaim } from '../entities/waitlist-claim.entity';
+import type { AutofixService } from '../routing/autofix/autofix.service';
+
+type ReqWithUser = Request & { user?: { email?: string } };
+
+function fakeReq(email?: string): ReqWithUser {
+  return { user: email !== undefined ? { email } : undefined } as ReqWithUser;
+}
 
 describe('WaitlistController', () => {
   let controller: WaitlistController;
   let tenantRepo: jest.Mocked<Pick<Repository<Tenant>, 'findOne' | 'update'>>;
-  let signupRepo: jest.Mocked<Pick<Repository<AutofixWaitlistSignup>, 'upsert'>>;
+  let claimRepo: jest.Mocked<Pick<Repository<WaitlistClaim>, 'upsert'>>;
   let waitlistSync: jest.Mocked<WaitlistSyncService>;
+  let autofixService: { invalidateAccess: jest.Mock };
 
   beforeEach(() => {
     tenantRepo = {
       findOne: jest.fn(),
       update: jest.fn().mockResolvedValue(undefined),
     };
-    signupRepo = {
+    claimRepo = {
       upsert: jest.fn().mockResolvedValue(undefined),
     };
     waitlistSync = {
       syncClaim: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<WaitlistSyncService>;
+    autofixService = { invalidateAccess: jest.fn() };
     controller = new WaitlistController(
       tenantRepo as unknown as Repository<Tenant>,
-      signupRepo as unknown as Repository<AutofixWaitlistSignup>,
+      claimRepo as unknown as Repository<WaitlistClaim>,
       waitlistSync,
+      autofixService as unknown as AutofixService,
     );
   });
 
@@ -56,38 +67,46 @@ describe('WaitlistController', () => {
   });
 
   describe('join', () => {
-    it('sets autofix_waitlist_at and returns joined status', async () => {
-      tenantRepo.findOne.mockResolvedValue({ email: 'user@example.com' } as Tenant);
-      const result = await controller.join({ tenantId: 't1', userId: 'u1' });
+    it('sets autofix_waitlist_at, grants early access, and returns joined status', async () => {
+      const result = await controller.join(
+        { tenantId: 't1', userId: 'u1' },
+        fakeReq('user@example.com'),
+      );
       expect(tenantRepo.update).toHaveBeenCalledWith('t1', {
         autofix_waitlist_at: expect.any(String),
       });
+      // Joining drops the cached access decision so the toggle shows immediately.
+      expect(autofixService.invalidateAccess).toHaveBeenCalledWith('t1');
       expect(result.joined).toBe(true);
       expect(result.joinedAt).toBeTruthy();
     });
 
-    it('calls waitlistSync.syncClaim with the tenant email', async () => {
-      tenantRepo.findOne.mockResolvedValue({ email: 'user@example.com' } as Tenant);
-      await controller.join({ tenantId: 't1', userId: 'u1' });
+    it('calls waitlistSync.syncClaim with the user email from session', async () => {
+      await controller.join({ tenantId: 't1', userId: 'u1' }, fakeReq('user@example.com'));
       expect(waitlistSync.syncClaim).toHaveBeenCalledWith('user@example.com');
     });
 
-    it('calls waitlistSync.syncClaim with empty string when tenant has no email', async () => {
-      tenantRepo.findOne.mockResolvedValue({ email: null } as Tenant);
-      await controller.join({ tenantId: 't1', userId: 'u1' });
+    it('calls waitlistSync.syncClaim with empty string when user has no email', async () => {
+      await controller.join({ tenantId: 't1', userId: 'u1' }, fakeReq());
       expect(waitlistSync.syncClaim).toHaveBeenCalledWith('');
     });
 
-    it('returns not joined when tenantId is null', async () => {
-      const result = await controller.join({ tenantId: null, userId: 'u1' });
+    it('returns not joined (and grants nothing) when tenantId is null', async () => {
+      const result = await controller.join(
+        { tenantId: null, userId: 'u1' },
+        fakeReq('user@example.com'),
+      );
       expect(tenantRepo.update).not.toHaveBeenCalled();
+      expect(autofixService.invalidateAccess).not.toHaveBeenCalled();
       expect(result.joined).toBe(false);
     });
 
     it('does not fail when waitlistSync.syncClaim rejects', async () => {
-      tenantRepo.findOne.mockResolvedValue({ email: 'user@example.com' } as Tenant);
       waitlistSync.syncClaim.mockRejectedValue(new Error('boom'));
-      const result = await controller.join({ tenantId: 't1', userId: 'u1' });
+      const result = await controller.join(
+        { tenantId: 't1', userId: 'u1' },
+        fakeReq('user@example.com'),
+      );
       expect(result.joined).toBe(true);
     });
   });
@@ -95,11 +114,11 @@ describe('WaitlistController', () => {
   describe('receiveClaim', () => {
     it('upserts the email and returns ok', async () => {
       const result = await controller.receiveClaim({ email: 'user@example.com' });
-      expect(signupRepo.upsert).toHaveBeenCalledWith(
+      expect(claimRepo.upsert).toHaveBeenCalledWith(
         {
           email: 'user@example.com',
           source: 'self-hosted',
-          signed_up_at: expect.any(String),
+          claimed_at: expect.any(String),
         },
         { conflictPaths: ['email'] },
       );
@@ -107,7 +126,7 @@ describe('WaitlistController', () => {
     });
 
     it('handles duplicate emails via upsert', async () => {
-      signupRepo.upsert.mockResolvedValue(undefined as never);
+      claimRepo.upsert.mockResolvedValue(undefined as never);
       const result = await controller.receiveClaim({ email: 'dup@example.com' });
       expect(result).toEqual({ ok: true });
     });

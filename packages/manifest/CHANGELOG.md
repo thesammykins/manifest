@@ -1,5 +1,46 @@
 # manifest
 
+## 6.15.0
+
+### Minor Changes
+
+- 5059bcb: Show every Manifest error in the Messages log, with a documented error code and a link to its docs page. Setup errors are no longer hidden from the log, malformed requests and Manifest internal errors are no longer blamed on your providers, and each rate limit now says which one fired.
+- 4c5aed8: Report an agent's request-side 4xx to Phoenix as evidence, carrying the full request body, for agents that have Auto-fix on. Opt-in via `AUTOFIX_REPORT_ALL_4XX=true`; nothing is stored in Manifest.
+
+### Patch Changes
+
+- e7fa0c1: Show a dedicated M302 "model not available" message when an explicit model ID is not available for the agent.
+- fccb0e2: Stop failing requests whose `model` isn't a provider-qualified ID. A bare model name now routes to the connection carrying it, an unrecognized one falls back to configured routing instead of erroring with "no providers configured", and a matching custom header tier again outranks the model an SDK names.
+- 80f3cb5: Drop two unused indexes on `agent_messages`, reclaiming about 1 GB and removing an index write from every message insert.
+- 09ecac0: Store the full provider error envelope on Auto-fix rows. They previously kept only the error's message text, dropping its `type`, `param` and `code` — so re-reading such a row identified the failure differently from the live report of that same failure.
+- ff947a6: Open the HTTP port at boot instead of waiting for the provider model registry to load, so a slow database no longer stalls deploy healthchecks.
+- ca87016: Attribute public provider-token stats from recorded message providers before falling back to pricing metadata, so ChatGPT subscription usage is not grouped under API-key gateways that expose the same model name.
+- ec290d1: Add a Messages dashboard trigger filter for ordinary, fallback, and Auto-fix rows.
+
+## 6.14.0
+
+### Minor Changes
+
+- 7dd4edc: Auto-fix now explains _why_ a request was repaired. Phoenix returns a human-readable explanation with each heal (a one-line summary plus a plain sentence per edit), and the message Auto-fix card renders it — replacing the locally re-derived operation prose, which couldn't describe most fixes. Falls back to the previous phrasing for older healed rows.
+- 45420a1: Add Auto-fix: when an agent request fails with a fixable error (bad parameter, wrong format, unknown model), Manifest sends it to a healing service, applies the patched request, and retries before falling back. Opt-in per agent from the Routing page. Each healed request shows as two linked rows in the log: the failed original and the successful retry.
+- 6442224: Report the Manifest tenant id to Phoenix on auto-fix heal requests, so failures are attributed to the tenant that hit them.
+- e5d4177: Add a post-auth Pro upgrade page and preserve upgrade intent through sign-in and sign-up.
+- 29f6cc7: Add support for ClinePass subscription
+- e5d4177: Add Stripe billing (cloud only). Free plan request quota comes from shared plan limits. Pro price is read from the configured Stripe Price ID and includes unlimited requests. Free request limits are enforced on the proxy; over-limit requests return a 402 with an upgrade prompt. Self-hosted stays unlimited.
+
+### Patch Changes
+
+- 5aeb106: Split user Limits, Manifest plan quota, and provider billing errors in message error taxonomy.
+- e5d4177: Route request-limit upgrade links to the post-auth upgrade page.
+- 9514558: Reset the request quota window for the billing rollout.
+- e5d4177: Send Manifest billing emails for plan lifecycle changes and monthly request usage milestones, with usage-alert preferences.
+
+## 6.13.5
+
+### Patch Changes
+
+- 46a09a8: Fix waitlist sync reading email from session instead of empty tenant field, rename table to waitlist_claims
+
 ## 6.13.4
 
 ### Patch Changes

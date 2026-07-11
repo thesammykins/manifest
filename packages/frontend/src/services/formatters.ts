@@ -78,6 +78,7 @@ const STATUS_LABELS: Record<string, string> = {
   // column stays the simple Success/Failed it was before.
   rate_limited: 'Failed',
   fallback_error: 'Handled',
+  auto_fixed: 'Auto-fixed',
 };
 
 export function formatStatus(status: string): string {
@@ -97,6 +98,9 @@ const ERROR_ORIGIN_LABELS: Record<string, string> = {
   // "Limit" so it reads distinctly from a provider rate limit.
   policy: 'Manifest · Limit',
   internal: 'Manifest · Internal',
+  // request = the caller's own payload was refused before routing. Not the
+  // operator's setup, not a Manifest bug, and never a provider failure.
+  request: 'Manifest · Bad request',
 };
 
 export function formatErrorOrigin(origin: string | null | undefined): string | null {
@@ -111,13 +115,15 @@ const ERROR_CLASS_LABELS: Record<string, string> = {
   invalid_request: 'Invalid request',
   not_found: 'Not found',
   payload_too_large: 'Payload too large',
+  billing: 'Billing',
   server_error: 'Server error',
   client_error: 'Client error',
   timeout: 'Timeout',
   network: 'Network',
   no_provider: 'No provider configured',
   no_provider_key: 'Missing API key',
-  limit_exceeded: 'Spend limit exceeded',
+  limit_exceeded: 'Limit exceeded',
+  plan_request_limit_exceeded: 'Plan request limit',
   internal: 'Internal error',
 };
 

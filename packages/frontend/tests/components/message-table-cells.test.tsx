@@ -1,10 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@solidjs/testing-library';
-import { FallbackIcon, HeartbeatIcon, ModelCell, AgentCell, StatusCell } from '../../src/components/message-table-cells';
+import {
+  AutofixIcon,
+  FallbackIcon,
+  HeartbeatIcon,
+  ModelCell,
+  AgentCell,
+  StatusCell,
+  TriggerCell,
+} from '../../src/components/message-table-cells';
+import { fireEvent } from '@solidjs/testing-library';
 import type { MessageRow } from '../../src/components/message-table-types';
 
 vi.mock('@solidjs/router', () => ({
-  A: (props: any) => <a href={props.href} class={props.class}>{props.children}</a>,
+  A: (props: any) => (
+    <a href={props.href} class={props.class}>
+      {props.children}
+    </a>
+  ),
 }));
 
 vi.mock('../../src/services/formatters.js', () => ({
@@ -32,7 +45,8 @@ vi.mock('../../src/services/model-display.js', () => ({
 }));
 
 vi.mock('../../src/components/ProviderIcon.jsx', () => ({
-  providerIcon: () => null, customProviderLogo: () => null,
+  providerIcon: () => null,
+  customProviderLogo: () => null,
 }));
 
 vi.mock('../../src/components/AuthBadge.js', () => ({
@@ -77,16 +91,106 @@ describe('HeartbeatIcon', () => {
   });
 });
 
+describe('AutofixIcon', () => {
+  it('renders with aria-hidden', () => {
+    const { container } = render(() => <AutofixIcon />);
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
+describe('TriggerCell', () => {
+  function renderCell(row: MessageRow, onTriggerClick?: (id: string) => void) {
+    return render(() => (
+      <table>
+        <tbody>
+          <tr>{TriggerCell(row, onTriggerClick)}</tr>
+        </tbody>
+      </table>
+    ));
+  }
+
+  it('renders an auto-fix badge on a healed retry row', () => {
+    const { container } = renderCell(baseRow({ autofix_role: 'retry' }));
+    const badge = container.querySelector('.trigger-badge--autofix');
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toContain('auto-fix');
+    expect(badge!.getAttribute('title')).toBe('Triggered by Auto-fix');
+  });
+
+  it('renders a fallback badge when a non-retry row fell back', () => {
+    const { container } = renderCell(baseRow({ fallback_from_model: 'gpt-4o' }));
+    const badge = container.querySelector('.trigger-badge--fallback');
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toContain('fallback');
+    expect(badge!.getAttribute('title')).toBe('Triggered by fallback');
+  });
+
+  it('prefers the auto-fix badge over fallback when both apply', () => {
+    const { container } = renderCell(
+      baseRow({ autofix_role: 'retry', fallback_from_model: 'gpt-4o' }),
+    );
+    expect(container.querySelector('.trigger-badge--autofix')).not.toBeNull();
+    expect(container.querySelector('.trigger-badge--fallback')).toBeNull();
+  });
+
+  it('renders an em dash when neither auto-fix nor fallback applies', () => {
+    const { container } = renderCell(baseRow({}));
+    expect(container.querySelector('.trigger-badge')).toBeNull();
+    expect(container.textContent).toContain('—');
+  });
+
+  it('fires onTriggerClick with the row id and does not render as a button without the handler', () => {
+    const onTriggerClick = vi.fn();
+    const { container } = renderCell(
+      baseRow({ id: 'row-9', autofix_role: 'retry' }),
+      onTriggerClick,
+    );
+    const badge = container.querySelector('.trigger-badge--autofix') as HTMLElement;
+    expect(badge.getAttribute('role')).toBe('button');
+    fireEvent.click(badge);
+    expect(onTriggerClick).toHaveBeenCalledWith('row-9');
+
+    const { container: plain } = renderCell(baseRow({ autofix_role: 'retry' }));
+    expect(
+      (plain.querySelector('.trigger-badge--autofix') as HTMLElement).getAttribute('role'),
+    ).toBeNull();
+  });
+
+  it('fires onTriggerClick from a fallback badge too', () => {
+    const onTriggerClick = vi.fn();
+    const { container } = renderCell(
+      baseRow({ id: 'row-3', fallback_from_model: 'gpt-4o' }),
+      onTriggerClick,
+    );
+    fireEvent.click(container.querySelector('.trigger-badge--fallback') as HTMLElement);
+    expect(onTriggerClick).toHaveBeenCalledWith('row-3');
+  });
+});
+
 describe('AgentCell', () => {
   it('renders agent_name when present', () => {
     const row = baseRow({ agent_name: 'my-agent' });
-    const { container } = render(() => <table><tbody><tr>{AgentCell(row)}</tr></tbody></table>);
+    const { container } = render(() => (
+      <table>
+        <tbody>
+          <tr>{AgentCell(row)}</tr>
+        </tbody>
+      </table>
+    ));
     expect(container.textContent).toContain('my-agent');
   });
 
   it('renders em dash when agent_name is null', () => {
     const row = baseRow({ agent_name: null });
-    const { container } = render(() => <table><tbody><tr>{AgentCell(row)}</tr></tbody></table>);
+    const { container } = render(() => (
+      <table>
+        <tbody>
+          <tr>{AgentCell(row)}</tr>
+        </tbody>
+      </table>
+    ));
     expect(container.textContent).toContain('—');
   });
 });
@@ -125,6 +229,21 @@ describe('StatusCell merged pill', () => {
     expect(onlyBadge(container).textContent).toContain('Failed: Transport');
   });
 
+  it('labels a malformed caller body "Failed: Bad request", not "Failed: Provider"', () => {
+    const { container } = renderCell(
+      baseRow({
+        status: 'error',
+        error_message: '[🦚 Manifest M300] `messages` array is required.',
+        error_origin: 'request',
+        error_class: 'invalid_request',
+      }),
+    );
+    const badge = onlyBadge(container);
+    expect(badge.textContent).toContain('Failed: Bad request');
+    // `request` is not a policy origin, so no limits link is rendered.
+    expect(container.querySelector('a')).toBeNull();
+  });
+
   it('renders a provider rate limit as "Failed: Provider" with no limits link', () => {
     const { container } = renderCell(
       baseRow({ status: 'rate_limited', error_message: 'rl', error_origin: 'provider' }),
@@ -133,13 +252,15 @@ describe('StatusCell merged pill', () => {
     expect(onlyBadge(container).textContent).toContain('Failed: Provider');
   });
 
-  it('merges a handled fallback into an amber "Handled: Provider" pill', () => {
+  it('renders a non-ok fallback_error row as a plain "Failed: Provider" pill', () => {
+    // fallback_error is no longer a distinct status pill — anything that isn't
+    // `ok` is a failure, and the fallback itself is surfaced in the Trigger column.
     const { container } = renderCell(
       baseRow({ status: 'fallback_error', error_message: 'overloaded', error_origin: 'provider' }),
     );
     const badge = onlyBadge(container);
-    expect(badge.textContent).toContain('Handled: Provider');
-    expect(badge.className).toContain('status-badge--fallback_error');
+    expect(badge.textContent).toContain('Failed: Provider');
+    expect(badge.className).toContain('status-badge--error');
   });
 
   it('renders a successful row as a single "Success" pill (no descriptor)', () => {
@@ -188,7 +309,13 @@ describe('ModelCell', () => {
       header_tier_name: 'My Custom Tier',
       header_tier_color: 'rose',
     });
-    const { container } = render(() => <table><tbody><tr>{ModelCell(row)}</tr></tbody></table>);
+    const { container } = render(() => (
+      <table>
+        <tbody>
+          <tr>{ModelCell(row)}</tr>
+        </tbody>
+      </table>
+    ));
     const badge = container.querySelector('.tier-badge--custom');
     expect(badge).not.toBeNull();
     expect(badge!.textContent).toBe('My Custom Tier');
@@ -197,7 +324,13 @@ describe('ModelCell', () => {
 
   it('uses indigo as default header tier color', () => {
     const row = baseRow({ header_tier_name: 'Tier A' });
-    const { container } = render(() => <table><tbody><tr>{ModelCell(row)}</tr></tbody></table>);
+    const { container } = render(() => (
+      <table>
+        <tbody>
+          <tr>{ModelCell(row)}</tr>
+        </tbody>
+      </table>
+    ));
     const badge = container.querySelector('.tier-badge--custom');
     expect(badge).not.toBeNull();
     expect(badge!.className).toContain('tier-color--indigo');
@@ -209,7 +342,13 @@ describe('ModelCell', () => {
       provider: 'custom:u-1',
       custom_provider_name: 'MyLLM',
     });
-    const { container } = render(() => <table><tbody><tr>{ModelCell(row)}</tr></tbody></table>);
+    const { container } = render(() => (
+      <table>
+        <tbody>
+          <tr>{ModelCell(row)}</tr>
+        </tbody>
+      </table>
+    ));
     expect(container.textContent).toContain('openai/gpt-oss-120b');
     expect(container.textContent).not.toContain('custom:');
     expect(container.textContent).not.toContain('Custom');
@@ -222,7 +361,13 @@ describe('ModelCell', () => {
       provider: 'custom:gone',
       custom_provider_name: null,
     });
-    const { container } = render(() => <table><tbody><tr>{ModelCell(row)}</tr></tbody></table>);
+    const { container } = render(() => (
+      <table>
+        <tbody>
+          <tr>{ModelCell(row)}</tr>
+        </tbody>
+      </table>
+    ));
     expect(container.textContent).toContain('my-model');
     expect(container.textContent).not.toContain('custom:');
     const avatar = container.querySelector('.provider-card__logo-letter');
