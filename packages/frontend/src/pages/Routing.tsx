@@ -1145,7 +1145,6 @@ const Routing: Component = () => {
         onAddFallback={handleAddFallback}
         onProviderUpdate={handleProviderUpdate}
         onProviderPoll={handleProviderPoll}
-        onOpenProviderModal={openProviderModal}
       />
 
       <SetupModal
