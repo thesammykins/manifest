@@ -248,7 +248,7 @@ export class AgentsController {
     }
 
     if (body.agent_category !== undefined || body.agent_platform !== undefined) {
-      await this.lifecycle.updateAgentType(
+      const updatedAgentId = await this.lifecycle.updateAgentType(
         ctx.tenantId,
         body.name ? slugify(body.name)! : agentName,
         {
@@ -256,6 +256,9 @@ export class AgentsController {
           agent_platform: body.agent_platform,
         },
       );
+      if (body.agent_platform !== undefined && ctx.tenantId) {
+        await this.providerService.reconcileCodexAliasesForAgent(updatedAgentId, ctx.tenantId);
+      }
       if (body.agent_category !== undefined) result['agent_category'] = body.agent_category;
       if (body.agent_platform !== undefined) result['agent_platform'] = body.agent_platform;
     }

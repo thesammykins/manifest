@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import {
@@ -95,7 +95,9 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 @Injectable()
-export class CodexAliasService {
+export class CodexAliasService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(CodexAliasService.name);
+
   constructor(
     @InjectRepository(Agent)
     private readonly agentRepo: Repository<Agent>,
@@ -104,6 +106,27 @@ export class CodexAliasService {
     @InjectRepository(ExposedModelRoute)
     private readonly aliasRepo: Repository<ExposedModelRoute>,
   ) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    try {
+      const agents = await this.agentRepo.find({
+        where: { agent_platform: 'codex' },
+        select: { tenant_id: true },
+      });
+      const tenantIds = [...new Set(agents.map((agent) => agent.tenant_id))];
+      await Promise.all(tenantIds.map((tenantId) => this.reconcileTenant(tenantId)));
+      if (tenantIds.length > 0) {
+        this.logger.log(`Reconciled managed Codex aliases for ${tenantIds.length} tenant(s)`);
+      }
+    } catch (error) {
+      // Alias backfill must not prevent the application from becoming healthy.
+      // Provider and agent lifecycle hooks will retry reconciliation later.
+      this.logger.error(
+        'Failed to reconcile managed Codex aliases during startup',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
 
   async reconcileTenant(tenantId: string): Promise<void> {
     const agents = await this.agentRepo.find({
@@ -117,11 +140,23 @@ export class CodexAliasService {
 
   async reconcileAgent(agentId: string, tenantId: string): Promise<void> {
     const agent = await this.agentRepo.findOne({
-      where: { id: agentId, tenant_id: tenantId, agent_platform: 'codex' },
+      where: { id: agentId, tenant_id: tenantId },
     });
     if (!agent) return;
+    if (agent.agent_platform !== 'codex') {
+      await this.removeManagedAliases(agentId);
+      return;
+    }
     const enabled = await this.hasActiveChatGptSubscription(tenantId);
     await this.reconcileAgentRows(agentId, tenantId, enabled);
+  }
+
+  private async removeManagedAliases(agentId: string): Promise<void> {
+    const existing = await this.aliasRepo.find({ where: { agent_id: agentId } });
+    const managed = existing.filter(isManagedAlias);
+    if (managed.length > 0) {
+      await this.aliasRepo.delete({ id: In(managed.map((row) => row.id)) });
+    }
   }
 
   private async hasActiveChatGptSubscription(tenantId: string): Promise<boolean> {

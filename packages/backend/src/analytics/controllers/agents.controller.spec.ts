@@ -16,9 +16,12 @@ import { ProviderService } from '../../routing/routing-core/provider.service';
 // Shared no-op ProviderService stub. createAgent now auto-enables every usable
 // provider on the new agent (symmetric global-providers auto-connect), so every
 // testing module that instantiates AgentsController must provide it.
-const providerServiceProvider = () => ({
+const providerServiceProvider = (reconcileCodexAliasesForAgent = jest.fn()) => ({
   provide: ProviderService,
-  useValue: { enableAllProvidersForAgent: jest.fn().mockResolvedValue(undefined) },
+  useValue: {
+    enableAllProvidersForAgent: jest.fn().mockResolvedValue(undefined),
+    reconcileCodexAliasesForAgent,
+  },
 });
 
 describe('AgentsController', () => {
@@ -34,6 +37,8 @@ describe('AgentsController', () => {
   let mockDuplicate: jest.Mock;
   let mockGetCopySummary: jest.Mock;
   let mockSuggestName: jest.Mock;
+  let mockUpdateAgentType: jest.Mock;
+  let mockReconcileCodexAliasesForAgent: jest.Mock;
 
   beforeEach(async () => {
     mockGetAgentList = jest.fn().mockResolvedValue([
@@ -45,6 +50,8 @@ describe('AgentsController', () => {
     mockConfigGet = jest.fn().mockReturnValue('');
     mockDeleteAgent = jest.fn().mockResolvedValue(undefined);
     mockRenameAgent = jest.fn().mockResolvedValue(undefined);
+    mockUpdateAgentType = jest.fn().mockResolvedValue('agent-id-1');
+    mockReconcileCodexAliasesForAgent = jest.fn().mockResolvedValue(undefined);
     mockTenantResolve = jest.fn().mockResolvedValue('tenant-123');
     // Mirrors the real DuplicateAgentSummary shape (agent-duplication.service.ts):
     // exactly { providers, tierAssignments, specificityAssignments, modelParams } —
@@ -83,7 +90,7 @@ describe('AgentsController', () => {
           useValue: {
             deleteAgent: mockDeleteAgent,
             renameAgent: mockRenameAgent,
-            updateAgentType: jest.fn(),
+            updateAgentType: mockUpdateAgentType,
             findAgentInfo: jest.fn(async (_userId: string, agentName: string) =>
               agentName === 'bot-1'
                 ? {
@@ -124,7 +131,7 @@ describe('AgentsController', () => {
           provide: IngestEventBusService,
           useValue: { emit: jest.fn() },
         },
-        providerServiceProvider(),
+        providerServiceProvider(mockReconcileCodexAliasesForAgent),
       ],
     }).compile();
 
@@ -384,6 +391,7 @@ describe('AgentsController', () => {
       agent_category: 'app',
       agent_platform: 'openai-sdk',
     });
+    expect(mockReconcileCodexAliasesForAgent).toHaveBeenCalledWith('agent-id-1', 'tenant-123');
   });
 
   it('invalidates agent list cache after successful createAgent', async () => {

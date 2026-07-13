@@ -84,14 +84,14 @@ export class AgentLifecycleService {
     tenantId: string | null,
     agentName: string,
     fields: { agent_category?: string; agent_platform?: string },
-  ): Promise<void> {
+  ): Promise<string> {
     const agent = await this.findAgentByTenant(tenantId, agentName);
     if (!agent) throw new NotFoundException(`Agent "${agentName}" not found`);
 
     const update: Record<string, unknown> = {};
     if (fields.agent_category !== undefined) update['agent_category'] = fields.agent_category;
     if (fields.agent_platform !== undefined) update['agent_platform'] = fields.agent_platform;
-    if (Object.keys(update).length === 0) return;
+    if (Object.keys(update).length === 0) return agent.id;
 
     await this.agentRepo
       .createQueryBuilder()
@@ -99,6 +99,7 @@ export class AgentLifecycleService {
       .set(update)
       .where('id = :id', { id: agent.id })
       .execute();
+    return agent.id;
   }
 
   async renameAgent(

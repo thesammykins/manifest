@@ -174,4 +174,40 @@ describe('CodexAliasService', () => {
     expect(providerRepo.findOne).not.toHaveBeenCalled();
     expect(aliasRepo.find).not.toHaveBeenCalled();
   });
+
+  it('backfills every existing Codex tenant when the application starts', async () => {
+    agentRepo.find.mockResolvedValue([
+      { tenant_id: 'tenant-1' } as Agent,
+      { tenant_id: 'tenant-1' } as Agent,
+      { tenant_id: 'tenant-2' } as Agent,
+    ]);
+    const reconcile = jest.spyOn(service, 'reconcileTenant').mockResolvedValue(undefined);
+
+    await service.onApplicationBootstrap();
+
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(reconcile).toHaveBeenCalledWith('tenant-1');
+    expect(reconcile).toHaveBeenCalledWith('tenant-2');
+  });
+
+  it('removes managed aliases when an existing harness changes away from Codex', async () => {
+    agentRepo.findOne.mockResolvedValue({
+      id: 'agent-1',
+      tenant_id: 'tenant-1',
+      agent_platform: 'other',
+    } as Agent);
+    aliasRepo.find.mockResolvedValue([
+      { id: 'manifest:codex:agent-1:gpt-5.5', model_id: 'gpt-5.5' },
+      { id: 'user-alias', model_id: 'my-model' },
+    ] as ExposedModelRoute[]);
+
+    await service.reconcileAgent('agent-1', 'tenant-1');
+
+    expect(aliasRepo.delete).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(aliasRepo.delete.mock.calls[0]?.[0])).toContain(
+      'manifest:codex:agent-1:gpt-5.5',
+    );
+    expect(JSON.stringify(aliasRepo.delete.mock.calls[0]?.[0])).not.toContain('user-alias');
+    expect(providerRepo.findOne).not.toHaveBeenCalled();
+  });
 });

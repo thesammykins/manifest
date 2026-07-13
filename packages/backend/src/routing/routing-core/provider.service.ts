@@ -174,6 +174,10 @@ export class ProviderService {
     await this.codexAliasService?.reconcileAgent(agentId, tenantId);
   }
 
+  async reconcileCodexAliasesForAgent(agentId: string, tenantId: string): Promise<void> {
+    await this.codexAliasService?.reconcileAgent(agentId, tenantId);
+  }
+
   /**
    * Symmetric auto-connect, direction 2 (a NEW provider is connected).
    *
