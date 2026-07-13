@@ -291,7 +291,10 @@ describe('ProxyController', () => {
           default_reasoning_level: 'low',
           supported_reasoning_levels: [
             { effort: 'low', description: 'Fast responses' },
+            { effort: 'medium', description: 'Balanced reasoning' },
             { effort: 'high', description: 'Deeper reasoning' },
+            { effort: 'max', description: 'Maximum reasoning' },
+            { effort: 'ultra', description: 'Maximum reasoning with delegation' },
           ],
           visibility: 'list',
           supported_in_api: true,
@@ -312,7 +315,10 @@ describe('ProxyController', () => {
           default_reasoning_level: 'low',
           supported_reasoning_levels: [
             { effort: 'low', description: 'Fast responses' },
+            { effort: 'medium', description: 'Balanced reasoning' },
             { effort: 'high', description: 'Deeper reasoning' },
+            { effort: 'max', description: 'Maximum reasoning' },
+            { effort: 'ultra', description: 'Maximum reasoning with delegation' },
           ],
           visibility: 'list',
           supported_in_api: true,
@@ -322,6 +328,61 @@ describe('ProxyController', () => {
     });
     expect(modelDiscovery.getCodexModelsForAgent).toHaveBeenCalledWith('tenant-1', 'agent-1');
     expect(modelDiscovery.getModelsForAgent).not.toHaveBeenCalled();
+  });
+
+  it('should filter open-ended reasoning efforts for Codex clients before 0.138.0', async () => {
+    modelAliasService.listEnabled.mockResolvedValue([
+      {
+        model_id: 'gpt-5.6',
+        display_name: 'GPT-5.6',
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
+      },
+    ]);
+    modelDiscovery.getCodexModelsForAgent.mockResolvedValue([
+      makeDiscoveredModel({
+        id: 'gpt-5.6-sol',
+        displayName: 'GPT-5.6 Sol',
+        provider: 'openai',
+        authType: 'subscription',
+        capabilityReasoning: true,
+        codexModelInfo: {
+          slug: 'gpt-5.6-sol',
+          display_name: 'GPT-5.6 Sol',
+          default_reasoning_level: 'ultra',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses' },
+            { effort: 'medium', description: 'Balanced reasoning' },
+            { effort: 'high', description: 'Deeper reasoning' },
+            { effort: 'xhigh', description: 'Extra high reasoning' },
+            { effort: 'max', description: 'Maximum reasoning' },
+            { effort: 'ultra', description: 'Maximum reasoning with delegation' },
+          ],
+          visibility: 'list',
+          supported_in_api: true,
+          priority: 5,
+        },
+      }),
+    ]);
+
+    await expect(
+      controller.models(
+        mockRequest({}, 'user-1', {}, 'tenant-1', { client_version: '0.135.0' }) as never,
+      ),
+    ).resolves.toEqual({
+      models: [
+        expect.objectContaining({
+          slug: 'gpt-5.6',
+          default_reasoning_level: 'xhigh',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses' },
+            { effort: 'medium', description: 'Balanced reasoning' },
+            { effort: 'high', description: 'Deeper reasoning' },
+            { effort: 'xhigh', description: 'Extra high reasoning' },
+          ],
+        }),
+      ],
+    });
   });
 
   it('should include aliases before authenticated agent models using provider-qualified ids', async () => {

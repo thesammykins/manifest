@@ -61,6 +61,15 @@ import type { CodexModelInfo, DiscoveredModel } from '../../model-discovery/mode
 const MAX_SEEN_TENANTS = 10_000;
 const SEEN_TENANT_TTL_MS = 24 * 60 * 60 * 1000;
 const MODEL_CREATED_UNKNOWN = 0;
+const CODEX_OPEN_REASONING_EFFORT_MIN_VERSION = [0, 138, 0] as const;
+const LEGACY_CODEX_REASONING_EFFORTS = new Set([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+]);
 
 interface OpenAiModelObject {
   id: string;
@@ -122,7 +131,8 @@ export class ProxyController {
   async models(
     @Req() req: Request & { ingestionContext: IngestionContext },
   ): Promise<ModelListResponse> {
-    if (isCodexModelsRequest(req)) return this.codexModels(req.ingestionContext);
+    const clientVersion = codexClientVersion(req);
+    if (clientVersion) return this.codexModels(req.ingestionContext, clientVersion);
 
     const includeManifestParams = wantsManifestParams(req);
     const [aliases, models] = await Promise.all([
@@ -213,7 +223,10 @@ export class ProxyController {
     };
   }
 
-  private async codexModels(context: IngestionContext): Promise<CodexModelList> {
+  private async codexModels(
+    context: IngestionContext,
+    clientVersion: string,
+  ): Promise<CodexModelList> {
     const [aliases, models] = await Promise.all([
       this.modelAliasService.listEnabled(context.agentId),
       this.modelDiscovery.getCodexModelsForAgent(context.tenantId, context.agentId),
@@ -228,13 +241,18 @@ export class ProxyController {
       const key = alias.model_id.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      catalog.push({
-        ...info,
-        slug: alias.model_id,
-        display_name: alias.display_name ?? info.display_name,
-        visibility: 'list',
-        supported_in_api: true,
-      });
+      catalog.push(
+        codexModelInfoForClient(
+          {
+            ...info,
+            slug: alias.model_id,
+            display_name: alias.display_name ?? info.display_name,
+            visibility: 'list',
+            supported_in_api: true,
+          },
+          clientVersion,
+        ),
+      );
     }
 
     return { models: catalog };
@@ -796,9 +814,49 @@ function wantsManifestParams(req: Request): boolean {
   return value === '1' || value === 'true';
 }
 
-function isCodexModelsRequest(req: Request): boolean {
+function codexClientVersion(req: Request): string | null {
   const value = req.query.client_version;
-  return typeof value === 'string' && value.trim().length > 0;
+  if (typeof value !== 'string') return null;
+  const version = value.trim();
+  return version.length > 0 ? version : null;
+}
+
+function codexModelInfoForClient(info: CodexModelInfo, clientVersion: string): CodexModelInfo {
+  // Codex 0.135-0.137 decode reasoning effort as a closed enum. Codex 0.138
+  // introduced a custom-string fallback, so newer effort names are safe there.
+  if (codexAcceptsOpenReasoningEfforts(clientVersion)) return info;
+
+  const supported = (info.supported_reasoning_levels ?? []).filter((level) =>
+    LEGACY_CODEX_REASONING_EFFORTS.has(level.effort.toLowerCase()),
+  );
+  const currentDefault = info.default_reasoning_level;
+  const normalizedDefault = currentDefault?.toLowerCase();
+  let compatibleDefault = currentDefault;
+  if (normalizedDefault && !LEGACY_CODEX_REASONING_EFFORTS.has(normalizedDefault)) {
+    compatibleDefault =
+      (normalizedDefault === 'max' || normalizedDefault === 'ultra'
+        ? supported.at(-1)?.effort
+        : supported.find((level) => level.effort === 'medium')?.effort) ??
+      supported[Math.floor((supported.length - 1) / 2)]?.effort ??
+      null;
+  }
+
+  return {
+    ...info,
+    default_reasoning_level: compatibleDefault,
+    supported_reasoning_levels: supported,
+  };
+}
+
+function codexAcceptsOpenReasoningEfforts(clientVersion: string): boolean {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:$|[-+])/.exec(clientVersion);
+  if (!match) return false;
+  const version = match.slice(1, 4).map(Number);
+  for (let index = 0; index < CODEX_OPEN_REASONING_EFFORT_MIN_VERSION.length; index++) {
+    const difference = version[index] - CODEX_OPEN_REASONING_EFFORT_MIN_VERSION[index];
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
 }
 
 function codexMetadataForRoute(
