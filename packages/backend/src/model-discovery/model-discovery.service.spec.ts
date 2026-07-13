@@ -647,6 +647,57 @@ describe('ModelDiscoveryService', () => {
   /* ── getModelsForAgent ── */
 
   describe('getModelsForAgent', () => {
+    it('refreshes legacy OpenAI subscription caches for Codex model metadata on demand', async () => {
+      const provider = makeProvider({
+        auth_type: 'subscription',
+        cached_models: [
+          makeModel({
+            id: 'gpt-5.5',
+            provider: 'openai',
+            authType: 'subscription',
+          }),
+        ],
+      });
+      providerRepo.find.mockResolvedValue([provider]);
+      fetcher.fetch.mockResolvedValue([
+        makeModel({
+          id: 'gpt-5.5',
+          displayName: 'GPT-5.5',
+          provider: 'openai',
+          authType: 'subscription',
+          capabilityReasoning: true,
+          codexModelInfo: {
+            slug: 'gpt-5.5',
+            display_name: 'GPT-5.5',
+            default_reasoning_level: 'medium',
+            supported_reasoning_levels: [
+              { effort: 'low', description: 'Fast responses' },
+              { effort: 'medium', description: 'Balanced reasoning' },
+            ],
+          },
+        }),
+      ]);
+
+      const result = await service.getCodexModelsForAgent('tenant-1', 'agent-1');
+
+      expect(result.find((model) => model.id === 'gpt-5.5')?.codexModelInfo).toEqual(
+        expect.objectContaining({
+          default_reasoning_level: 'medium',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses' },
+            { effort: 'medium', description: 'Balanced reasoning' },
+          ],
+        }),
+      );
+      expect(fetcher.fetch).toHaveBeenCalledWith(
+        'openai',
+        'decrypted-key',
+        'subscription',
+        undefined,
+        { forceRefresh: true },
+      );
+    });
+
     it('should merge cached models from providers and custom providers', async () => {
       const cachedModels = [makeModel({ id: 'gpt-4', provider: 'openai' })];
       const providers = [makeProvider({ cached_models: cachedModels })];

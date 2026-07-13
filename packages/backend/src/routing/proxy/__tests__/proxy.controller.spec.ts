@@ -95,6 +95,11 @@ function makeDiscoveredModel(overrides: Partial<DiscoveredModel> = {}): Discover
   };
 }
 
+function requireOpenAiModelList(result: Awaited<ReturnType<ProxyController['models']>>) {
+  if (!('data' in result)) throw new Error('Expected an OpenAI-compatible model list');
+  return result;
+}
+
 describe('ProxyController', () => {
   let controller: ProxyController;
   let proxyService: { proxyRequest: jest.Mock };
@@ -127,7 +132,7 @@ describe('ProxyController', () => {
     manager: { transaction: jest.Mock };
   };
   let mockPricingCache: { getByModel: jest.Mock };
-  let modelDiscovery: { getModelsForAgent: jest.Mock };
+  let modelDiscovery: { getModelsForAgent: jest.Mock; getCodexModelsForAgent: jest.Mock };
   let providerParamSpecs: { getSpecs: jest.Mock };
   let recorder: ProxyMessageRecorder;
   let planService: { assertWithinRequestLimit: jest.Mock };
@@ -181,6 +186,7 @@ describe('ProxyController', () => {
     mockPricingCache = { getByModel: jest.fn().mockReturnValue(undefined) };
     modelDiscovery = {
       getModelsForAgent: jest.fn().mockResolvedValue([]),
+      getCodexModelsForAgent: jest.fn().mockResolvedValue([]),
     };
     providerParamSpecs = {
       getSpecs: jest.fn().mockResolvedValue([]),
@@ -231,7 +237,7 @@ describe('ProxyController', () => {
   });
 
   it('should expose /v1/models as an OpenAI-compatible list with the Manifest auto routes', async () => {
-    const result = await controller.models(mockRequest({}) as never);
+    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
     expect(result).toEqual({
       object: 'list',
       data: [
@@ -256,6 +262,68 @@ describe('ProxyController', () => {
     expect(providerParamSpecs.getSpecs).not.toHaveBeenCalled();
   });
 
+  it('should expose alias-specific Codex reasoning metadata to Codex model refreshes', async () => {
+    modelAliasService.listEnabled.mockResolvedValue([
+      {
+        model_id: 'gpt-5.6',
+        display_name: 'GPT-5.6',
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
+      },
+      {
+        model_id: 'codex-auto-review',
+        display_name: 'Codex Auto Review',
+        source_kind: 'tier',
+        route: null,
+      },
+    ]);
+    modelDiscovery.getCodexModelsForAgent.mockResolvedValue([
+      makeDiscoveredModel({
+        id: 'gpt-5.6-sol',
+        displayName: 'GPT-5.6 Sol',
+        provider: 'openai',
+        authType: 'subscription',
+        capabilityReasoning: true,
+        codexModelInfo: {
+          slug: 'gpt-5.6-sol',
+          display_name: 'GPT-5.6 Sol',
+          description: 'Fast coding model',
+          default_reasoning_level: 'low',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses' },
+            { effort: 'high', description: 'Deeper reasoning' },
+          ],
+          visibility: 'list',
+          supported_in_api: true,
+          priority: 5,
+        },
+      }),
+    ]);
+
+    await expect(
+      controller.models(
+        mockRequest({}, 'user-1', {}, 'tenant-1', { client_version: '0.144.1' }) as never,
+      ),
+    ).resolves.toEqual({
+      models: [
+        expect.objectContaining({
+          slug: 'gpt-5.6',
+          display_name: 'GPT-5.6',
+          default_reasoning_level: 'low',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses' },
+            { effort: 'high', description: 'Deeper reasoning' },
+          ],
+          visibility: 'list',
+          supported_in_api: true,
+          priority: 5,
+        }),
+      ],
+    });
+    expect(modelDiscovery.getCodexModelsForAgent).toHaveBeenCalledWith('tenant-1', 'agent-1');
+    expect(modelDiscovery.getModelsForAgent).not.toHaveBeenCalled();
+  });
+
   it('should include aliases before authenticated agent models using provider-qualified ids', async () => {
     modelAliasService.listEnabled.mockResolvedValue([
       { model_id: 'openai-api/gpt-5-high', display_name: 'GPT-5 High' },
@@ -277,7 +345,7 @@ describe('ProxyController', () => {
       makeDiscoveredModel({ id: 'gpt-4o', provider: 'openai', authType: 'api_key' }),
     ]);
 
-    const result = await controller.models(mockRequest({}) as never);
+    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
     expect(result.object).toBe('list');
     expect(result.data.map((model) => model.id)).toEqual([
       'auto',
@@ -336,7 +404,7 @@ describe('ProxyController', () => {
       },
     ]);
 
-    const result = await controller.models(mockRequest({}) as never);
+    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
 
     expect(result.data.find((model) => model.id === 'auto')).toEqual(
       expect.objectContaining({ context_window: 16000, context_length: 16000 }),
@@ -358,7 +426,7 @@ describe('ProxyController', () => {
       resolved: { route: null, fallback_routes: null },
     });
 
-    const result = await controller.models(mockRequest({}) as never);
+    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
 
     expect(result.data.map((model) => model.id)).not.toContain('hidden-alias');
   });
@@ -454,7 +522,7 @@ describe('ProxyController', () => {
       },
     );
 
-    const result = await controller.models(mockRequest({}) as never);
+    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
     const ids = result.data.map((model) => model.id);
 
     expect(ids).toEqual(

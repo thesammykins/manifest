@@ -14,6 +14,25 @@ import type { AuthType, ModelCapability, ModelModality } from 'manifest-shared';
  */
 export const DEFAULT_CONTEXT_WINDOW = 128000;
 
+/**
+ * Opaque Codex `/models` metadata retained from the ChatGPT subscription
+ * catalog. Codex evolves this object independently of Manifest, so preserve
+ * unknown fields while naming the fields Manifest uses to build alias rows.
+ */
+export interface CodexModelInfo {
+  slug: string;
+  display_name: string;
+  description?: string | null;
+  default_reasoning_level?: string | null;
+  supported_reasoning_levels?: Array<{
+    effort: string;
+    description: string;
+  }>;
+  visibility?: string;
+  supported_in_api?: boolean;
+  priority?: number;
+}
+
 export interface DiscoveredModel {
   id: string;
   displayName: string;
@@ -29,6 +48,7 @@ export interface DiscoveredModel {
   supportedEndpoints?: readonly string[];
   qualityScore: number;
   authType?: AuthType;
+  codexModelInfo?: CodexModelInfo;
 }
 
 export interface FetcherConfig {

@@ -1,5 +1,10 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { DiscoveredModel, FetcherConfig, DEFAULT_CONTEXT_WINDOW } from './model-fetcher';
+import {
+  DiscoveredModel,
+  FetcherConfig,
+  DEFAULT_CONTEXT_WINDOW,
+  type CodexModelInfo,
+} from './model-fetcher';
 import { OLLAMA_CLOUD_HOST, OLLAMA_HOST } from '../common/constants/ollama';
 import {
   CODEX_CLI_ORIGINATOR,
@@ -561,18 +566,47 @@ interface OpenAISubscriptionModelEntry {
   context_window?: number;
   visibility?: string;
   supported_in_api?: boolean;
+  default_reasoning_level?: string | null;
+  supported_reasoning_levels?: Array<{
+    effort: string;
+    description: string;
+  }>;
 }
 
-const parseOpenaiSubscription = createModelParser<OpenAISubscriptionModelEntry>({
-  arrayKey: 'models',
-  filter: (entry) => typeof entry.slug === 'string' && entry.visibility === 'list',
-  getId: (entry) => entry.slug,
-  getDisplayName: (entry, id) => entry.display_name || id,
-  contextWindow: (entry) => entry.context_window ?? 200000,
-  inputPricePerToken: 0,
-  outputPricePerToken: 0,
-  capabilityCode: true,
-});
+function parseOpenaiSubscription(body: unknown, provider: string): DiscoveredModel[] {
+  const models = (body as { models?: unknown[] })?.models;
+  if (!Array.isArray(models)) return [];
+
+  return models
+    .filter((model): model is OpenAISubscriptionModelEntry => {
+      if (!model || typeof model !== 'object') return false;
+      const entry = model as Partial<OpenAISubscriptionModelEntry>;
+      return typeof entry.slug === 'string' && entry.visibility === 'list';
+    })
+    .map((entry) => {
+      const displayName = entry.display_name || entry.slug;
+      const reasoningLevels = Array.isArray(entry.supported_reasoning_levels)
+        ? entry.supported_reasoning_levels
+        : [];
+      const codexModelInfo: CodexModelInfo = {
+        ...entry,
+        slug: entry.slug,
+        display_name: displayName,
+      };
+      return {
+        id: entry.slug,
+        displayName,
+        provider,
+        contextWindow: entry.context_window ?? 200000,
+        inputPricePerToken: 0,
+        outputPricePerToken: 0,
+        capabilityReasoning: reasoningLevels.length > 0,
+        capabilityCode: true,
+        qualityScore: 3,
+        codexModelInfo,
+      };
+    });
+}
 
 /* ── GitHub Copilot (subscription-only, OpenAI-compatible /models) ── */
 

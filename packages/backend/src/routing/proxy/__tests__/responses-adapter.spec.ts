@@ -231,6 +231,24 @@ describe('Responses adapter', () => {
     });
   });
 
+  it('preserves Codex reasoning selections in native Responses requests', () => {
+    expect(
+      toNativeResponsesRequest(
+        {
+          input: 'hi',
+          reasoning: { effort: 'high', summary: 'auto' },
+        },
+        'gpt-5.6-sol',
+      ),
+    ).toEqual({
+      input: 'hi',
+      model: 'gpt-5.6-sol',
+      reasoning: { effort: 'high', summary: 'auto' },
+      stream: false,
+      store: false,
+    });
+  });
+
   it('can add default instructions for native Responses backends that require them', () => {
     expect(
       toNativeResponsesRequest({ input: 'hi' }, 'gpt-5.4', { defaultInstructions: true }),

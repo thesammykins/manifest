@@ -16,7 +16,19 @@ function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
+function powerShellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
 export function getCodexConfig(baseUrl: string): string {
+  return getCodexConfigForPlatform(baseUrl, 'posix');
+}
+
+export function getCodexConfigForPlatform(baseUrl: string, platform: 'posix' | 'windows'): string {
+  const auth =
+    platform === 'windows'
+      ? 'auth = { command = "powershell.exe", args = ["-NoProfile", "-Command", "[Console]::Out.Write($env:MANIFEST_API_KEY)"] }'
+      : 'auth = { command = "printenv", args = ["MANIFEST_API_KEY"] }';
   return [
     'model = "auto"',
     'model_provider = "manifest"',
@@ -24,14 +36,22 @@ export function getCodexConfig(baseUrl: string): string {
     '[model_providers.manifest]',
     'name = "Manifest"',
     `base_url = ${tomlString(baseUrl)}`,
-    'env_key = "MANIFEST_API_KEY"',
-    'env_key_instructions = "Set MANIFEST_API_KEY to this harness key before starting Codex."',
+    auth,
     'wire_api = "responses"',
   ].join('\n');
 }
 
 export function getCodexEnvSnippet(apiKey: string): string {
-  return `export MANIFEST_API_KEY=${shellSingleQuote(apiKey)}`;
+  return getCodexEnvSnippetForPlatform(apiKey, 'posix');
+}
+
+export function getCodexEnvSnippetForPlatform(
+  apiKey: string,
+  platform: 'posix' | 'windows',
+): string {
+  return platform === 'windows'
+    ? `$env:MANIFEST_API_KEY = ${powerShellSingleQuote(apiKey)}`
+    : `export MANIFEST_API_KEY=${shellSingleQuote(apiKey)}`;
 }
 
 const EyeIcon: Component<{ open: boolean }> = (props) => (
@@ -67,6 +87,12 @@ const CodexSetup: Component<Props> = (props) => {
   const [keyRevealed, setKeyRevealed] = createSignal(false);
   const placeholderKey = 'mnfst_YOUR_KEY';
   const copyKey = () => props.apiKey ?? placeholderKey;
+  const platform = (): 'posix' | 'windows' =>
+    typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent ?? '')
+      ? 'windows'
+      : 'posix';
+  const config = () => getCodexConfigForPlatform(props.baseUrl, platform());
+  const envSnippet = (key: string) => getCodexEnvSnippetForPlatform(key, platform());
   const shownKey = () => {
     if (!props.apiKey) return placeholderKey;
     if (keyRevealed()) return props.apiKey;
@@ -77,8 +103,9 @@ const CodexSetup: Component<Props> = (props) => {
     <div class="setup-agents-card">
       <p class="setup-method__hint">
         Add this provider to <code class="setup-model-hint__code">~/.codex/config.toml</code>. Codex
-        keeps its native model catalog, so <code class="setup-model-hint__code">/model</code>{' '}
-        selections route through Manifest using the matching aliases.
+        merges Manifest&apos;s alias metadata into its native model catalog, so{' '}
+        <code class="setup-model-hint__code">/model</code> shows each model&apos;s supported
+        reasoning levels and routes selections through Manifest.
       </p>
 
       <p class="setup-method__hint">
@@ -89,9 +116,9 @@ const CodexSetup: Component<Props> = (props) => {
 
       <div class="setup-cli-block">
         <div class="setup-cli-block__actions">
-          <CopyButton text={getCodexConfig(props.baseUrl)} />
+          <CopyButton text={config()} />
         </div>
-        <CodeBlock code={getCodexConfig(props.baseUrl)} language="toml" />
+        <CodeBlock code={config()} language="toml" />
       </div>
 
       <p class="setup-method__hint">
@@ -110,9 +137,12 @@ const CodexSetup: Component<Props> = (props) => {
               <EyeIcon open={keyRevealed()} />
             </button>
           </Show>
-          <CopyButton text={getCodexEnvSnippet(copyKey())} />
+          <CopyButton text={envSnippet(copyKey())} />
         </div>
-        <CodeBlock code={getCodexEnvSnippet(shownKey())} language="bash" />
+        <CodeBlock
+          code={envSnippet(shownKey())}
+          language={platform() === 'windows' ? 'powershell' : 'bash'}
+        />
       </div>
     </div>
   );

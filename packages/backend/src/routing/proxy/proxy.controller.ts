@@ -56,6 +56,7 @@ import { redactInlineImageDataUrls } from './inline-image-redaction';
 import { isReasoningEffortSuffix, openAiModelId } from './openai-model-id';
 import type { ModelRoute, ProviderParamSpec } from 'manifest-shared';
 import { PlanService } from '../../billing/plan.service';
+import type { CodexModelInfo, DiscoveredModel } from '../../model-discovery/model-fetcher';
 
 const MAX_SEEN_TENANTS = 10_000;
 const SEEN_TENANT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -86,6 +87,12 @@ interface OpenAiModelList {
   data: OpenAiModelObject[];
 }
 
+interface CodexModelList {
+  models: CodexModelInfo[];
+}
+
+type ModelListResponse = OpenAiModelList | CodexModelList;
+
 @Controller(['v1', ''])
 @Public()
 @UseGuards(AgentKeyAuthGuard)
@@ -114,7 +121,9 @@ export class ProxyController {
   @Get('models')
   async models(
     @Req() req: Request & { ingestionContext: IngestionContext },
-  ): Promise<OpenAiModelList> {
+  ): Promise<ModelListResponse> {
+    if (isCodexModelsRequest(req)) return this.codexModels(req.ingestionContext);
+
     const includeManifestParams = wantsManifestParams(req);
     const [aliases, models] = await Promise.all([
       this.modelAliasService.listEnabled(req.ingestionContext.agentId),
@@ -202,6 +211,33 @@ export class ProxyController {
       object: 'list',
       data,
     };
+  }
+
+  private async codexModels(context: IngestionContext): Promise<CodexModelList> {
+    const [aliases, models] = await Promise.all([
+      this.modelAliasService.listEnabled(context.agentId),
+      this.modelDiscovery.getCodexModelsForAgent(context.tenantId, context.agentId),
+    ]);
+    const catalog: CodexModelInfo[] = [];
+    const seen = new Set<string>();
+
+    for (const alias of aliases) {
+      if (alias.source_kind !== 'direct' || !alias.route) continue;
+      const info = codexMetadataForRoute(alias.route, models);
+      if (!info) continue;
+      const key = alias.model_id.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      catalog.push({
+        ...info,
+        slug: alias.model_id,
+        display_name: alias.display_name ?? info.display_name,
+        visibility: 'list',
+        supported_in_api: true,
+      });
+    }
+
+    return { models: catalog };
   }
 
   private async manifestParamsForRoute(route: ModelRoute): Promise<ManifestModelParam[]> {
@@ -758,6 +794,26 @@ function wantsManifestParams(req: Request): boolean {
   const value = req.query.manifest_params;
   if (Array.isArray(value)) return value.includes('1') || value.includes('true');
   return value === '1' || value === 'true';
+}
+
+function isCodexModelsRequest(req: Request): boolean {
+  const value = req.query.client_version;
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function codexMetadataForRoute(
+  route: ModelRoute,
+  models: DiscoveredModel[],
+): CodexModelInfo | null {
+  return (
+    models.find(
+      (model) =>
+        model.provider.toLowerCase() === route.provider.toLowerCase() &&
+        model.authType === route.authType &&
+        model.id === route.model &&
+        !!model.codexModelInfo,
+    )?.codexModelInfo ?? null
+  );
 }
 
 function addManifestParams(row: OpenAiModelObject, params: ManifestModelParam[]): void {

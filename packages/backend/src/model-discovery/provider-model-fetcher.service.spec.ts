@@ -2174,6 +2174,14 @@ describe('ProviderModelFetcherService', () => {
               visibility: 'list',
               supported_in_api: true,
               priority: 10,
+              shell_type: 'shell_command',
+              base_instructions: 'You are Codex.',
+              default_reasoning_level: 'medium',
+              supported_reasoning_levels: [
+                { effort: 'low', description: 'Fast responses' },
+                { effort: 'medium', description: 'Balanced reasoning' },
+                { effort: 'high', description: 'Deeper reasoning' },
+              ],
             },
             {
               slug: 'gpt-5.4',
@@ -2196,8 +2204,20 @@ describe('ProviderModelFetcherService', () => {
           contextWindow: 192000,
           inputPricePerToken: 0,
           outputPricePerToken: 0,
+          capabilityReasoning: true,
           capabilityCode: true,
           qualityScore: 3,
+          codexModelInfo: expect.objectContaining({
+            slug: 'gpt-5.5',
+            shell_type: 'shell_command',
+            base_instructions: 'You are Codex.',
+            default_reasoning_level: 'medium',
+            supported_reasoning_levels: [
+              { effort: 'low', description: 'Fast responses' },
+              { effort: 'medium', description: 'Balanced reasoning' },
+              { effort: 'high', description: 'Deeper reasoning' },
+            ],
+          }),
         }),
       );
       expect(result[1].id).toBe('gpt-5.4');

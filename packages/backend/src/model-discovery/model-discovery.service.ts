@@ -78,6 +78,7 @@ function nonChatFilterKey(providerId: string, authType: AuthType): string {
 
 /** 2-minute TTL for the per-agent discovered-model list, matching RoutingCacheService. */
 const MODELS_CACHE_TTL_MS = 120_000;
+const CODEX_METADATA_REFRESH_COOLDOWN_MS = 5 * 60_000;
 
 interface ModelsCacheEntry {
   data: DiscoveredModel[];
@@ -106,6 +107,8 @@ export class ModelDiscoveryService {
   // (below) and by ResolveService bridging RoutingCacheService.invalidateAgent
   // to invalidate() — see ResolveService for the wiring.
   private readonly modelsCache = new Map<string, ModelsCacheEntry>();
+  private readonly codexMetadataRefreshAttempts = new Map<string, number>();
+  private readonly codexMetadataRefreshes = new Map<string, Promise<void>>();
 
   constructor(
     @InjectRepository(TenantProvider)
@@ -462,6 +465,70 @@ export class ModelDiscoveryService {
     return models;
   }
 
+  /**
+   * Return the agent model view used to build Codex's native `/models`
+   * response. Existing installs may have OpenAI subscription models cached
+   * before Manifest retained Codex metadata, so refresh that provider once on
+   * demand. A short cooldown prevents an unavailable upstream from being
+   * retried on every Codex launch.
+   */
+  async getCodexModelsForAgent(tenantId: string, agentId: string): Promise<DiscoveredModel[]> {
+    let models = await this.getModelsForAgent(tenantId, agentId);
+    const openAiSubscriptionModels = models.filter(isOpenAiSubscriptionModel);
+    if (openAiSubscriptionModels.some((model) => model.codexModelInfo)) {
+      return models;
+    }
+
+    const allProviders = await this.providerRepo.find({
+      where: { tenant_id: tenantId, is_active: true },
+    });
+    const providers = await this.filterProvidersForAgent(allProviders, agentId);
+    const refreshes = providers
+      .filter(
+        (provider) =>
+          provider.provider.toLowerCase() === 'openai' &&
+          provider.auth_type === 'subscription' &&
+          !!provider.api_key_encrypted,
+      )
+      .map((provider) => this.refreshCodexMetadata(provider));
+
+    if (refreshes.length === 0) return models;
+    await Promise.all(refreshes);
+    this.invalidate(agentId);
+    models = await this.getModelsForAgent(tenantId, agentId);
+    return models;
+  }
+
+  private async refreshCodexMetadata(provider: TenantProvider): Promise<void> {
+    const active = this.codexMetadataRefreshes.get(provider.id);
+    if (active) return active;
+
+    const now = Date.now();
+    for (const [providerId, attemptedAt] of this.codexMetadataRefreshAttempts) {
+      if (now - attemptedAt >= CODEX_METADATA_REFRESH_COOLDOWN_MS) {
+        this.codexMetadataRefreshAttempts.delete(providerId);
+      }
+    }
+    const lastAttempt = this.codexMetadataRefreshAttempts.get(provider.id) ?? 0;
+    if (now - lastAttempt < CODEX_METADATA_REFRESH_COOLDOWN_MS) return;
+    this.codexMetadataRefreshAttempts.set(provider.id, now);
+
+    const refresh = this.discoverModels(provider, {
+      forceRefresh: true,
+      skipModelsDevRefresh: true,
+    })
+      .then(() => undefined)
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Codex model metadata refresh failed for ${provider.provider}: ${message}`,
+        );
+      })
+      .finally(() => this.codexMetadataRefreshes.delete(provider.id));
+    this.codexMetadataRefreshes.set(provider.id, refresh);
+    return refresh;
+  }
+
   async getModelsForAgentWithFilterState(
     tenantId: string,
     agentId: string,
@@ -744,4 +811,8 @@ export class ModelDiscoveryService {
     });
     return { ...model, qualityScore: score };
   }
+}
+
+function isOpenAiSubscriptionModel(model: DiscoveredModel): boolean {
+  return model.provider.toLowerCase() === 'openai' && model.authType === 'subscription';
 }
