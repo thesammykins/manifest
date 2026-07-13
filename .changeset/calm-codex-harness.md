@@ -1,0 +1,5 @@
+---
+'manifest': minor
+---
+
+Add a native Codex harness with paste-ready Responses API configuration, managed ChatGPT subscription aliases for Codex model switching, and a cheap-tier alias for automatic approval reviews.

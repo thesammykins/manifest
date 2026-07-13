@@ -11,6 +11,7 @@ import { In, type Repository } from 'typeorm';
 import type { RoutingCacheService } from '../routing-cache.service';
 import type { ModelPricingCacheService } from '../../../model-prices/model-pricing-cache.service';
 import { encrypt, getEncryptionSecret } from '../../../common/utils/crypto.util';
+import type { CodexAliasService } from '../codex-alias.service';
 
 const route = (
   provider: string,
@@ -1483,6 +1484,10 @@ describe('ProviderService — symmetric provider↔agent auto-connect', () => {
       invalidateTenant: jest.fn(),
     };
     const enabledProviderRepo = makeEnabledProviderRepo(enabled);
+    const codexAliasService = {
+      reconcileAgent: jest.fn().mockResolvedValue(undefined),
+      reconcileTenant: jest.fn().mockResolvedValue(undefined),
+    };
     const svc = new ProviderService(
       providerRepo as unknown as Repository<TenantProvider>,
       makeRepo() as unknown as Repository<TierAssignment>,
@@ -1492,8 +1497,9 @@ describe('ProviderService — symmetric provider↔agent auto-connect', () => {
       { getByModel: jest.fn() } as unknown as ModelPricingCacheService,
       routingCache as unknown as RoutingCacheService,
       enabledProviderRepo as unknown as Repository<AgentEnabledProvider>,
+      codexAliasService as unknown as CodexAliasService,
     );
-    return { svc, providerRepo, routingCache };
+    return { svc, providerRepo, routingCache, codexAliasService };
   };
 
   beforeAll(() => {
@@ -1507,7 +1513,7 @@ describe('ProviderService — symmetric provider↔agent auto-connect', () => {
   describe('enableAllProvidersForAgent', () => {
     it('enables every usable provider for the agent and invalidates that agent', async () => {
       const enabled: Array<{ agent: string; provider: string }> = [];
-      const { svc, providerRepo, routingCache } = build(['agent-x'], enabled);
+      const { svc, providerRepo, routingCache, codexAliasService } = build(['agent-x'], enabled);
       providerRepo.find.mockResolvedValue([
         { id: 'p1', provider: 'openai', auth_type: 'api_key', is_active: true } as TenantProvider,
         {
@@ -1526,6 +1532,7 @@ describe('ProviderService — symmetric provider↔agent auto-connect', () => {
       ]);
       expect(routingCache.invalidateAgent).toHaveBeenCalledWith('new-agent');
       expect(routingCache.invalidateTenant).toHaveBeenCalledWith('tenant-1');
+      expect(codexAliasService.reconcileAgent).toHaveBeenCalledWith('new-agent', 'tenant-1');
     });
 
     it('is a no-op when the user has no usable providers', async () => {
@@ -1545,7 +1552,7 @@ describe('ProviderService — symmetric provider↔agent auto-connect', () => {
   describe('enableProviderForAllAgents', () => {
     it('enables the new provider for every owned agent and invalidates their caches', async () => {
       const enabled: Array<{ agent: string; provider: string }> = [];
-      const { svc, routingCache } = build(['agent-1', 'agent-2'], enabled);
+      const { svc, routingCache, codexAliasService } = build(['agent-1', 'agent-2'], enabled);
 
       await svc.enableProviderForAllAgents('tenant-1', 'new-provider');
 
@@ -1556,6 +1563,7 @@ describe('ProviderService — symmetric provider↔agent auto-connect', () => {
       expect(routingCache.invalidateAgent).toHaveBeenCalledWith('agent-1');
       expect(routingCache.invalidateAgent).toHaveBeenCalledWith('agent-2');
       expect(routingCache.invalidateTenant).toHaveBeenCalledWith('tenant-1');
+      expect(codexAliasService.reconcileTenant).toHaveBeenCalledWith('tenant-1');
     });
 
     it('is a no-op when the user owns no agents', async () => {

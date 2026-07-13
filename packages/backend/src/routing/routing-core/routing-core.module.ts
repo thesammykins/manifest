@@ -9,6 +9,7 @@ import { Agent } from '../../entities/agent.entity';
 import { Tenant } from '../../entities/tenant.entity';
 import { AgentMessage } from '../../entities/agent-message.entity';
 import { HeaderTier } from '../../entities/header-tier.entity';
+import { ExposedModelRoute } from '../../entities/exposed-model-route.entity';
 import { ModelPricesModule } from '../../model-prices/model-prices.module';
 import { ModelDiscoveryModule } from '../../model-discovery/model-discovery.module';
 import { ProviderService } from './provider.service';
@@ -21,6 +22,7 @@ import { SpecificityService } from './specificity.service';
 import { SpecificityPenaltyService } from './specificity-penalty.service';
 import { AgentModelParamsService } from './agent-model-params.service';
 import { ProviderParamSpecService } from './provider-param-spec.service';
+import { CodexAliasService } from './codex-alias.service';
 
 @Module({
   imports: [
@@ -34,6 +36,7 @@ import { ProviderParamSpecService } from './provider-param-spec.service';
       Tenant,
       AgentMessage,
       HeaderTier,
+      ExposedModelRoute,
     ]),
     ModelPricesModule,
     ModelDiscoveryModule,
@@ -49,6 +52,7 @@ import { ProviderParamSpecService } from './provider-param-spec.service';
     SpecificityPenaltyService,
     AgentModelParamsService,
     ProviderParamSpecService,
+    CodexAliasService,
   ],
   exports: [
     TypeOrmModule,
@@ -62,6 +66,7 @@ import { ProviderParamSpecService } from './provider-param-spec.service';
     SpecificityPenaltyService,
     AgentModelParamsService,
     ProviderParamSpecService,
+    CodexAliasService,
   ],
 })
 export class RoutingCoreModule {}

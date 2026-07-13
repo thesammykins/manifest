@@ -8,6 +8,7 @@ import ClaudeCodeSetup from './ClaudeCodeSetup.jsx';
 import OpenCodeSetup from './OpenCodeSetup.jsx';
 import WarpSetup from './WarpSetup.jsx';
 import PiSetup from './PiSetup.jsx';
+import CodexSetup from './CodexSetup.jsx';
 import type { ToolkitId } from '../services/framework-snippets.js';
 import type { ModelAlias } from '../services/api.js';
 
@@ -17,6 +18,7 @@ type AgentId =
   | 'hermes'
   | 'nanobot'
   | 'craft'
+  | 'codex'
   | 'claude-code'
   | 'opencode'
   | 'warp'
@@ -64,15 +66,17 @@ const SetupStepAddProvider: Component<Props> = (props) => {
               ? 'Connect your Nanobot harness to Manifest'
               : props.platform === 'craft'
                 ? 'Connect your Craft harness to Manifest'
-                : props.platform === 'claude-code'
-                  ? 'Connect Claude Code to Manifest'
-                  : props.platform === 'opencode'
-                    ? 'Connect OpenCode to Manifest'
-                    : props.platform === 'warp'
-                      ? 'Connect Warp to Manifest'
-                      : props.platform === 'pi'
-                        ? 'Connect Pi to Manifest'
-                        : 'Connect your harness to Manifest'}
+                : props.platform === 'codex'
+                  ? 'Connect Codex to Manifest'
+                  : props.platform === 'claude-code'
+                    ? 'Connect Claude Code to Manifest'
+                    : props.platform === 'opencode'
+                      ? 'Connect OpenCode to Manifest'
+                      : props.platform === 'warp'
+                        ? 'Connect Warp to Manifest'
+                        : props.platform === 'pi'
+                          ? 'Connect Pi to Manifest'
+                          : 'Connect your harness to Manifest'}
       </h3>
 
       {/* Platform-filtered mode: show only relevant content */}
@@ -89,6 +93,9 @@ const SetupStepAddProvider: Component<Props> = (props) => {
           </Match>
           <Match when={props.platform === 'craft'}>
             <CraftAgentSetup {...snippetProps()} />
+          </Match>
+          <Match when={props.platform === 'codex'}>
+            <CodexSetup {...snippetProps()} />
           </Match>
           <Match when={props.platform === 'claude-code'}>
             <ClaudeCodeSetup {...snippetProps()} />
@@ -214,6 +221,22 @@ const SetupStepAddProvider: Component<Props> = (props) => {
               </button>
               <button
                 class="panel__tab"
+                classList={{ 'panel__tab--active': activeAgent() === 'codex' }}
+                onClick={() => setActiveAgent('codex')}
+                role="tab"
+                aria-selected={activeAgent() === 'codex'}
+              >
+                <img
+                  src="/icons/providers/openai.svg"
+                  alt=""
+                  class="panel__tab-icon"
+                  width="16"
+                  height="16"
+                />
+                Codex
+              </button>
+              <button
+                class="panel__tab"
                 classList={{ 'panel__tab--active': activeAgent() === 'claude-code' }}
                 onClick={() => setActiveAgent('claude-code')}
                 role="tab"
@@ -279,6 +302,9 @@ const SetupStepAddProvider: Component<Props> = (props) => {
             </Match>
             <Match when={activeAgent() === 'craft'}>
               <CraftAgentSetup {...snippetProps()} />
+            </Match>
+            <Match when={activeAgent() === 'codex'}>
+              <CodexSetup {...snippetProps()} />
             </Match>
             <Match when={activeAgent() === 'claude-code'}>
               <ClaudeCodeSetup {...snippetProps()} />

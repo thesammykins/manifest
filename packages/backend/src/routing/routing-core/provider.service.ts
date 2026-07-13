@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, FindOptionsWhere, EntityManager } from 'typeorm';
@@ -40,6 +41,7 @@ import {
   getSubscriptionEndpointRegionConfig,
   SubscriptionEndpointRegionConfig,
 } from '../subscription-region';
+import { CodexAliasService } from './codex-alias.service';
 
 const MAX_KEYS_PER_PROVIDER = 5;
 const MAX_LABEL_LENGTH = 50;
@@ -78,6 +80,8 @@ export class ProviderService {
     private readonly routingCache: RoutingCacheService,
     @InjectRepository(AgentEnabledProvider)
     private readonly enabledProviderRepo: Repository<AgentEnabledProvider> | null = null,
+    @Optional()
+    private readonly codexAliasService: CodexAliasService | null = null,
   ) {}
 
   /**
@@ -167,6 +171,7 @@ export class ProviderService {
     }
     this.routingCache.invalidateAgent(agentId);
     this.routingCache.invalidateTenant(tenantId);
+    await this.codexAliasService?.reconcileAgent(agentId, tenantId);
   }
 
   /**
@@ -186,6 +191,7 @@ export class ProviderService {
       this.routingCache.invalidateAgent(agentId);
     }
     this.routingCache.invalidateTenant(tenantId);
+    await this.codexAliasService?.reconcileTenant(tenantId);
   }
 
   /**
@@ -666,6 +672,7 @@ export class ProviderService {
       this.routingCache.invalidateAgent(agentId);
     }
     this.routingCache.invalidateTenant(tenantId);
+    await this.codexAliasService?.reconcileTenant(tenantId);
   }
 
   /**
@@ -767,6 +774,7 @@ export class ProviderService {
     }
     if (agentId !== null) this.routingCache.invalidateAgent(agentId);
     this.routingCache.invalidateTenant(tenantId);
+    await this.codexAliasService?.reconcileTenant(tenantId);
 
     return { notifications: [] };
   }
@@ -998,6 +1006,7 @@ export class ProviderService {
       await this.renumberPriorities(tenantId, provider, target.auth_type, manager);
       if (agentId !== null) this.routingCache.invalidateAgent(agentId);
       this.routingCache.invalidateTenant(tenantId);
+      await this.codexAliasService?.reconcileTenant(tenantId);
       return { notifications: [] };
     }
 
@@ -1017,6 +1026,7 @@ export class ProviderService {
     await this.renumberPriorities(tenantId, provider, target.auth_type, manager);
     if (agentId !== null) this.routingCache.invalidateAgent(agentId);
     this.routingCache.invalidateTenant(tenantId);
+    await this.codexAliasService?.reconcileTenant(tenantId);
     return { notifications: [] };
   }
 
@@ -1038,6 +1048,7 @@ export class ProviderService {
     }
     this.routingCache.invalidateAgent(agentId);
     this.routingCache.invalidateTenant(tenantId);
+    await this.codexAliasService?.reconcileTenant(tenantId);
   }
 
   private async cleanupUnsupportedSubscriptionProviders(tenantId: string): Promise<void> {

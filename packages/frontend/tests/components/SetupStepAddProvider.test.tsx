@@ -46,18 +46,19 @@ describe('SetupStepAddProvider', () => {
     expect(activeBtn!.textContent).toBe('Agents');
   });
 
-  it('shows OpenClaw, Hermes, Nanobot, Craft, Claude Code, OpenCode, Warp, and Pi tabs inside Agents', () => {
+  it('shows OpenClaw, Hermes, Nanobot, Craft, Codex, Claude Code, OpenCode, Warp, and Pi tabs inside Agents', () => {
     const { container } = render(() => <SetupStepAddProvider {...defaultProps} />);
     const agentTabs = container.querySelectorAll('.panel__tab');
-    expect(agentTabs).toHaveLength(8);
+    expect(agentTabs).toHaveLength(9);
     expect(agentTabs[0].textContent).toContain('OpenClaw');
     expect(agentTabs[1].textContent).toContain('Hermes Agent');
     expect(agentTabs[2].textContent).toContain('Nanobot');
     expect(agentTabs[3].textContent).toContain('Craft Agent');
-    expect(agentTabs[4].textContent).toContain('Claude Code');
-    expect(agentTabs[5].textContent).toContain('OpenCode');
-    expect(agentTabs[6].textContent).toContain('Warp');
-    expect(agentTabs[7].textContent).toContain('Pi');
+    expect(agentTabs[4].textContent).toContain('Codex');
+    expect(agentTabs[5].textContent).toContain('Claude Code');
+    expect(agentTabs[6].textContent).toContain('OpenCode');
+    expect(agentTabs[7].textContent).toContain('Warp');
+    expect(agentTabs[8].textContent).toContain('Pi');
   });
 
   it('shows Nanobot setup when Nanobot tab clicked', () => {
@@ -71,7 +72,7 @@ describe('SetupStepAddProvider', () => {
   it('shows Claude Code setup when Claude Code tab clicked', () => {
     const { container } = render(() => <SetupStepAddProvider {...defaultProps} />);
     const agentTabs = container.querySelectorAll('.panel__tab');
-    fireEvent.click(agentTabs[4]); // Claude Code
+    fireEvent.click(agentTabs[5]); // Claude Code
     expect(container.textContent).toContain('ANTHROPIC_BASE_URL');
     expect(container.textContent).toContain('ANTHROPIC_AUTH_TOKEN');
   });
@@ -84,10 +85,19 @@ describe('SetupStepAddProvider', () => {
     expect(container.textContent).toContain('mnfst_YOUR_KEY');
   });
 
+  it('shows Codex setup when Codex tab clicked', () => {
+    const { container } = render(() => <SetupStepAddProvider {...defaultProps} />);
+    const agentTabs = container.querySelectorAll('.panel__tab');
+    fireEvent.click(agentTabs[4]); // Codex
+    expect(container.textContent).toContain('~/.codex/config.toml');
+    expect(container.textContent).toContain('wire_api = "responses"');
+    expect(container.textContent).toContain('/model');
+  });
+
   it('shows OpenCode setup when OpenCode tab clicked', () => {
     const { container } = render(() => <SetupStepAddProvider {...defaultProps} />);
     const agentTabs = container.querySelectorAll('.panel__tab');
-    fireEvent.click(agentTabs[5]); // OpenCode
+    fireEvent.click(agentTabs[6]); // OpenCode
     expect(container.textContent).toContain('~/.config/opencode/opencode.json');
     expect(container.textContent).toContain('"model": "manifest/auto"');
   });
@@ -95,7 +105,7 @@ describe('SetupStepAddProvider', () => {
   it('shows Pi setup when Pi tab clicked', () => {
     const { container } = render(() => <SetupStepAddProvider {...defaultProps} />);
     const agentTabs = container.querySelectorAll('.panel__tab');
-    fireEvent.click(agentTabs[7]); // Pi
+    fireEvent.click(agentTabs[8]); // Pi
     expect(container.textContent).toContain('~/.pi/agent/models.json');
     expect(container.textContent).toContain('"api": "openai-completions"');
   });
@@ -103,7 +113,7 @@ describe('SetupStepAddProvider', () => {
   it('shows Warp setup when Warp tab clicked', () => {
     const { container } = render(() => <SetupStepAddProvider {...defaultProps} />);
     const agentTabs = container.querySelectorAll('.panel__tab');
-    fireEvent.click(agentTabs[6]); // Warp
+    fireEvent.click(agentTabs[7]); // Warp
     expect(container.textContent).toContain('custom inference endpoint');
     expect(container.textContent).toContain('"url": "http://localhost:3001/v1"');
   });
@@ -348,6 +358,20 @@ describe('SetupStepAddProvider', () => {
     it('shows correct heading for craft', () => {
       render(() => <SetupStepAddProvider {...defaultProps} platform="craft" />);
       expect(screen.getByText('Connect your Craft harness to Manifest')).toBeDefined();
+    });
+
+    it('shows Codex setup directly when platform is codex', () => {
+      const { container } = render(() => (
+        <SetupStepAddProvider {...defaultProps} platform="codex" />
+      ));
+      expect(container.textContent).toContain('~/.codex/config.toml');
+      expect(container.textContent).toContain('wire_api = "responses"');
+      expect(container.querySelector('[aria-label="Setup method"]')).toBeNull();
+    });
+
+    it('shows correct heading for codex', () => {
+      render(() => <SetupStepAddProvider {...defaultProps} platform="codex" />);
+      expect(screen.getByText('Connect Codex to Manifest')).toBeDefined();
     });
 
     it('shows ClaudeCodeSetup directly when platform is claude-code', () => {

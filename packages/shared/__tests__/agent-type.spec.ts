@@ -16,6 +16,7 @@ describe('agent-type', () => {
       'hermes',
       'nanobot',
       'craft',
+      'codex',
       'claude-code',
       'opencode',
       'warp',
@@ -60,14 +61,17 @@ describe('agent-type', () => {
 
   it('places coding assistants under coding only, not personal or app', () => {
     expect(PLATFORMS_BY_CATEGORY.coding).toContain('claude-code');
+    expect(PLATFORMS_BY_CATEGORY.coding).toContain('codex');
     expect(PLATFORMS_BY_CATEGORY.coding).toContain('opencode');
     expect(PLATFORMS_BY_CATEGORY.coding).toContain('warp');
     expect(PLATFORMS_BY_CATEGORY.coding).toContain('pi');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('claude-code');
+    expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('codex');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('opencode');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('warp');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('pi');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('claude-code');
+    expect(PLATFORMS_BY_CATEGORY.app).not.toContain('codex');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('opencode');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('warp');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('pi');
@@ -125,6 +129,7 @@ describe('agent-type', () => {
       expect(platformIcon('openclaw', 'personal')).toBe(PLATFORM_ICONS.openclaw);
       expect(platformIcon('hermes', 'personal')).toBe(PLATFORM_ICONS.hermes);
       expect(platformIcon('nanobot', 'personal')).toBe(PLATFORM_ICONS.nanobot);
+      expect(platformIcon('codex', 'coding')).toBe(PLATFORM_ICONS.codex);
       expect(platformIcon('claude-code', 'coding')).toBe(PLATFORM_ICONS['claude-code']);
       expect(platformIcon('opencode', 'coding')).toBe(PLATFORM_ICONS.opencode);
       expect(platformIcon('warp', 'coding')).toBe(PLATFORM_ICONS.warp);
