@@ -108,6 +108,32 @@ describe('snapshotRequestParams', () => {
     ).toEqual({ temperature: 0.4, thinking: { type: 'disabled' } });
   });
 
+  it.each([
+    [{ reasoning: { effort: 'high' } }, 'high'],
+    [{ reasoningEffort: 'medium' }, 'medium'],
+  ])('normalizes client reasoning shapes to the provider catalog path', (body, effort) => {
+    const reasoningSpec: ProviderParamSpec = {
+      provider: 'openai',
+      authType: 'subscription',
+      model: 'gpt-5.6-sol',
+      path: 'reasoning_effort',
+      type: 'enum',
+      label: 'Reasoning effort',
+      description: 'Controls OpenAI reasoning effort.',
+      default: 'none',
+      values: ['none', 'low', 'medium', 'high'],
+      group: 'reasoning',
+    };
+
+    expect(
+      snapshotRequestParams({
+        body: { ...body, messages: [] },
+        modelParams: null,
+        specs: [reasoningSpec],
+      }),
+    ).toEqual({ reasoning_effort: effort });
+  });
+
   it('omits unavailable params from the snapshot', () => {
     expect(
       snapshotRequestParams({

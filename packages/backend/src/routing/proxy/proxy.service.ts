@@ -331,7 +331,10 @@ export class ProxyService {
       this.providerParamSpecs.getSpecs(route.provider, route.authType, primaryModel),
     ]);
     const primaryRequestParams = snapshotRequestParams({
-      body: routingBody as Record<string, unknown>,
+      // Snapshot the inbound API shape. Native Responses requests carry
+      // `reasoning.effort`, which the chat-shaped routing copy intentionally
+      // omits because it is not used for scoring.
+      body,
       modelParams: primaryModelParams,
       specs: primarySpecs,
     });
@@ -947,7 +950,11 @@ export class ProxyService {
     // tier's routes); fall back to a fresh tier lookup if the resolver returned
     // null (e.g. the tier itself was missing).
     let fallbackRoutes = resolved.fallback_routes ?? null;
-    if (!fallbackRoutes) {
+    // A direct model alias may define its own fallbacks, but it must never
+    // inherit the automatic tier's chain. Otherwise an explicit model such as
+    // gpt-5.6-sol can silently become the default tier's gpt-5.6-luna after a
+    // retryable upstream response.
+    if (!fallbackRoutes && resolved.reason !== 'direct-model') {
       const tiers = await this.tierService.getTiers(agentId);
       const assignment = tiers.find((t) => t.tier === resolved.tier);
       fallbackRoutes = assignment?.fallback_routes ?? null;

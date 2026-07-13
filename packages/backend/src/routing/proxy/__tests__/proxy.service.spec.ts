@@ -403,6 +403,49 @@ describe('ProxyService — orchestration', () => {
       expect(result.meta.reason).toBe('direct-model');
     });
 
+    it('does not borrow tier fallbacks for a direct model alias', async () => {
+      modelAliasService.resolveModelRequest.mockResolvedValue({
+        kind: 'resolved',
+        resolved: {
+          tier: 'default',
+          route: route('openai', 'subscription', 'gpt-5.6-sol'),
+          fallback_routes: null,
+          confidence: 1,
+          score: 0,
+          reason: 'direct-model',
+          response_mode: 'buffered',
+        },
+        requestParams: null,
+        scopeKey: 'model-alias:sol',
+      });
+      tierService.getTiers.mockResolvedValue([
+        {
+          tier: 'default',
+          fallback_routes: [route('openai', 'subscription', 'gpt-5.6-luna')],
+        } as never,
+      ]);
+      fallbackService.tryForwardToProvider.mockResolvedValue({
+        response: new Response('rate limited', { status: 429 }),
+        isGoogle: false,
+        isAnthropic: false,
+        isChatGpt: true,
+      });
+
+      const result = await svc.proxyRequest(
+        baseOpts({
+          body: {
+            model: 'gpt-5.6-sol',
+            messages: [{ role: 'user', content: 'solve this' }],
+          },
+        }),
+      );
+
+      expect(tierService.getTiers).not.toHaveBeenCalled();
+      expect(fallbackService.tryFallbacks).not.toHaveBeenCalled();
+      expect(result.meta).toMatchObject({ model: 'gpt-5.6-sol', reason: 'direct-model' });
+      expect(result.forward.response.status).toBe(429);
+    });
+
     it('applies x-manifest-reasoning-effort to direct aliases', async () => {
       modelAliasService.resolveModelRequest.mockResolvedValue({
         kind: 'resolved',
@@ -1082,6 +1125,42 @@ describe('ProxyService — orchestration', () => {
         }),
       );
       expect(result.meta.request_params).toEqual({ reasoning_effort: 'low' });
+    });
+
+    it('snapshots native Responses reasoning effort from the inbound body', async () => {
+      modelAliasService.resolveModelRequest.mockResolvedValue({
+        kind: 'resolved',
+        resolved: {
+          tier: 'default',
+          route: route('openai', 'api_key', 'gpt-5'),
+          fallback_routes: null,
+          confidence: 1,
+          score: 0,
+          reason: 'direct-model',
+          response_mode: 'buffered',
+        },
+        requestParams: null,
+        scopeKey: 'direct-model:openai:api_key:gpt-5',
+      });
+      fallbackService.tryForwardToProvider.mockResolvedValue({
+        response: okResponse(200),
+        isGoogle: false,
+        isAnthropic: false,
+        isChatGpt: false,
+      });
+
+      const result = await svc.proxyRequest(
+        baseOpts({
+          apiMode: 'responses',
+          body: {
+            model: 'gpt-5',
+            input: 'hi',
+            reasoning: { effort: 'high', summary: 'auto' },
+          },
+        }),
+      );
+
+      expect(result.meta.request_params).toEqual({ reasoning_effort: 'high' });
     });
 
     it('falls back to legacy raw direct ids only after canonical lookup misses', async () => {

@@ -42,8 +42,9 @@ export function snapshotRequestParams(
       );
       continue;
     }
-    if (hasPath(body, spec.path)) {
-      out = setProviderParamValue(out, spec.path, getPath(body, spec.path) as JsonValue);
+    const bodyValue = requestBodyValue(body, spec);
+    if (bodyValue.found) {
+      out = setProviderParamValue(out, spec.path, bodyValue.value as JsonValue);
       continue;
     }
     if (spec.default !== undefined && providerParamIsApplicable(spec, out)) {
@@ -53,6 +54,39 @@ export function snapshotRequestParams(
 
   const effective = omitProviderInapplicableParams(out, orderedSpecs);
   return Object.keys(effective).length > 0 ? effective : null;
+}
+
+function requestBodyValue(
+  body: Record<string, unknown>,
+  spec: ProviderParamSpec,
+): { found: boolean; value?: unknown } {
+  if (isReasoningEffortSpec(spec)) {
+    // Chat Completions, Responses, and AI SDK/OpenCode clients serialize the
+    // same control under different shapes. Prefer the native Responses shape
+    // because provider adapters also treat an explicit reasoning object as
+    // authoritative when more than one spelling is present.
+    for (const path of [
+      'reasoning.effort',
+      'reasoning_effort',
+      'reasoningEffort',
+      'generationConfig.thinkingConfig.thinkingLevel',
+    ]) {
+      if (hasPath(body, path)) return { found: true, value: getPath(body, path) };
+    }
+  }
+  if (hasPath(body, spec.path)) return { found: true, value: getPath(body, spec.path) };
+  return { found: false };
+}
+
+function isReasoningEffortSpec(spec: ProviderParamSpec): boolean {
+  if (spec.group !== 'reasoning') return false;
+  const path = spec.path.toLowerCase();
+  return (
+    path === 'reasoning_effort' ||
+    path.endsWith('.effort') ||
+    path.endsWith('thinkinglevel') ||
+    spec.label.toLowerCase().includes('effort')
+  );
 }
 
 function getPath(values: Record<string, unknown>, path: string): unknown {

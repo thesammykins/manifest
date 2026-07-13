@@ -43,7 +43,10 @@ export function getOpenCodeConfig(
 function openCodeModels(modelAliases?: ModelAlias[]): Record<string, unknown> {
   const entries = exposedSetupModels(modelAliases).map((model) => [
     model.id,
-    { name: model.name } as Record<string, unknown>,
+    // Pin the wire model id explicitly. OpenCode otherwise currently defaults
+    // to the object key, but `id` is the documented escape hatch for aliases
+    // and prevents future catalog metadata from remapping a Manifest route.
+    { id: model.id, name: model.name } as Record<string, unknown>,
   ]);
   const models = Object.fromEntries(entries);
   const aliases = (modelAliases ?? []).filter((alias) => alias.enabled);

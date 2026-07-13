@@ -129,6 +129,7 @@ describe('OpenCodeSetup', () => {
     const models = config.provider.manifest.models;
 
     expect(models['openai-subscription/gpt-5.5']).toMatchObject({
+      id: 'openai-subscription/gpt-5.5',
       name: 'GPT 5.5',
       variants: {
         high: { reasoningEffort: 'high', reasoningSummary: 'auto' },
@@ -137,5 +138,30 @@ describe('OpenCodeSetup', () => {
     });
     expect(models['openai-subscription/gpt-5.5-high']).toBeUndefined();
     expect(models['openai-subscription/gpt-5.5-low']).toBeUndefined();
+  });
+
+  it('pins distinct Manifest aliases to their exact OpenCode wire model ids', () => {
+    const aliases = [
+      {
+        model_id: 'gpt-5.6-sol',
+        display_name: 'GPT-5.6 Sol',
+        enabled: true,
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
+      },
+      {
+        model_id: 'gpt-5.6-luna',
+        display_name: 'GPT-5.6 Luna',
+        enabled: true,
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-luna' },
+      },
+    ] as ModelAlias[];
+
+    const config = JSON.parse(getOpenCodeConfig('http://localhost:38240/v1', 'mnfst_key', aliases));
+    const models = config.provider.manifest.models;
+
+    expect(models['gpt-5.6-sol']).toMatchObject({ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' });
+    expect(models['gpt-5.6-luna']).toMatchObject({ id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna' });
   });
 });
