@@ -319,6 +319,53 @@ function responseTextFormat(format: unknown): JsonRecord {
   return out;
 }
 
+type ResponsesTerminalStatus = 'completed' | 'incomplete';
+
+interface ResponsesTerminalState {
+  status: ResponsesTerminalStatus;
+  itemStatus: ResponsesTerminalStatus;
+  eventType: 'response.completed' | 'response.incomplete';
+  incompleteDetails: JsonRecord | null;
+}
+
+function responsesTerminalState(finishReason: unknown): ResponsesTerminalState {
+  switch (finishReason) {
+    case 'stop':
+    case 'tool_calls':
+    case 'function_call':
+      return {
+        status: 'completed',
+        itemStatus: 'completed',
+        eventType: 'response.completed',
+        incompleteDetails: null,
+      };
+    case 'length':
+      return {
+        status: 'incomplete',
+        itemStatus: 'incomplete',
+        eventType: 'response.incomplete',
+        incompleteDetails: { reason: 'max_output_tokens' },
+      };
+    case 'content_filter':
+      return {
+        status: 'incomplete',
+        itemStatus: 'incomplete',
+        eventType: 'response.incomplete',
+        incompleteDetails: { reason: 'content_filter' },
+      };
+    default:
+      // A missing or unknown reason cannot prove successful completion. Keep
+      // it incomplete without fabricating one of the two protocol-defined
+      // incomplete reasons (max_output_tokens or content_filter).
+      return {
+        status: 'incomplete',
+        itemStatus: 'incomplete',
+        eventType: 'response.incomplete',
+        incompleteDetails: null,
+      };
+  }
+}
+
 export function fromChatCompletionResponse(
   body: JsonRecord,
   model: string,
@@ -335,12 +382,13 @@ export function fromChatCompletionResponse(
   const structuredText = toolCallArguments(structuredToolCall);
   const contentText = textFromContent(message.content);
   const outputText = structuredText ?? contentText;
+  const terminal = responsesTerminalState(firstChoice.finish_reason);
 
   if (outputText || structuredText !== null) {
     output.push({
       type: 'message',
       id: `msg_${randomUUID().replace(/-/g, '')}`,
-      status: 'completed',
+      status: terminal.itemStatus,
       role: 'assistant',
       content: [{ type: 'output_text', text: outputText, annotations: [] }],
     });
@@ -357,7 +405,7 @@ export function fromChatCompletionResponse(
         name: typeof toolCall.function.name === 'string' ? toolCall.function.name : '',
         arguments:
           typeof toolCall.function.arguments === 'string' ? toolCall.function.arguments : '{}',
-        status: 'completed',
+        status: terminal.itemStatus,
       });
     }
   }
@@ -367,10 +415,10 @@ export function fromChatCompletionResponse(
     id: `resp_${randomUUID().replace(/-/g, '')}`,
     object: 'response',
     created_at: created,
-    status: 'completed',
-    completed_at: created,
+    status: terminal.status,
+    completed_at: terminal.status === 'completed' ? created : null,
     error: null,
-    incomplete_details: null,
+    incomplete_details: terminal.incompleteDetails,
     instructions: null,
     max_output_tokens: null,
     model: typeof body.model === 'string' ? body.model : model,
@@ -412,7 +460,7 @@ function toResponsesUsage(usage: unknown): JsonRecord | null {
 
 export function collectResponsesSseResponse(sseText: string): JsonRecord {
   let text = '';
-  let completed: JsonRecord | null = null;
+  let terminal: { response: JsonRecord; itemStatus: ResponsesTerminalStatus } | null = null;
   // Track function_call output items emitted incrementally. Keyed by
   // `output_index` so a tool call can sit at any position in a mixed-output
   // stream (e.g. assistant message + function_call). Some Codex Responses
@@ -478,14 +526,23 @@ export function collectResponsesSseResponse(sseText: string): JsonRecord {
         // partial state we accumulated from `added` + delta events.
         functionCalls.set(idx, item);
       }
-    } else if (parsed.event === 'response.completed') {
+    } else if (
+      parsed.event === 'response.completed' ||
+      parsed.event === 'response.incomplete' ||
+      parsed.event === 'response.failed'
+    ) {
       const data = safeParse(parsed.data);
-      completed = isRecord(data?.response) ? data.response : null;
+      if (isRecord(data?.response)) {
+        terminal = {
+          response: data.response,
+          itemStatus: parsed.event === 'response.completed' ? 'completed' : 'incomplete',
+        };
+      }
     }
   }
 
-  if (completed) {
-    let result = withCollectedTextOutput(completed, text);
+  if (terminal) {
+    let result = withCollectedTextOutput(terminal.response, text, terminal.itemStatus);
     if (functionCalls.size > 0) {
       result = withCollectedFunctionCalls(result, functionCalls);
     }
@@ -527,7 +584,11 @@ function withCollectedFunctionCalls(
   return { ...response, output: [...existing, ...toAdd] };
 }
 
-function withCollectedTextOutput(response: JsonRecord, text: string): JsonRecord {
+function withCollectedTextOutput(
+  response: JsonRecord,
+  text: string,
+  itemStatus: ResponsesTerminalStatus,
+): JsonRecord {
   if (!text) return response;
   const output = Array.isArray(response.output) ? response.output : [];
   const hasTextOutput = output.some((item) => {
@@ -545,7 +606,7 @@ function withCollectedTextOutput(response: JsonRecord, text: string): JsonRecord
       {
         type: 'message',
         id: `msg_${randomUUID().replace(/-/g, '')}`,
-        status: 'completed',
+        status: itemStatus,
         role: 'assistant',
         content: [{ type: 'output_text', text, annotations: [] }],
       },
@@ -592,6 +653,7 @@ interface ResponsesStreamState {
   structuredOutputToolName?: string;
   structuredToolCallIndexes: Set<number>;
   textFormat?: JsonRecord;
+  finishReason: unknown;
   createdEmitted: boolean;
   itemOpened: boolean;
   completed: boolean;
@@ -630,6 +692,7 @@ export function createResponsesStreamTransformer(
     structuredOutputToolName: options.structuredOutputToolName,
     structuredToolCallIndexes: new Set(),
     textFormat: options.textFormat,
+    finishReason: undefined,
     createdEmitted: false,
     itemOpened: false,
     completed: false,
@@ -744,6 +807,9 @@ function transformResponsesStreamChunk(chunk: string, state: ResponsesStreamStat
     const choices = Array.isArray(data.choices) ? data.choices : [];
     const choice = isRecord(choices[0]) ? choices[0] : null;
     const delta = isRecord(choice?.delta) ? choice.delta : {};
+    if (choice?.finish_reason !== null && choice?.finish_reason !== undefined) {
+      state.finishReason = choice.finish_reason;
+    }
 
     if (typeof delta.content === 'string' && delta.content.length > 0) {
       events.push(...emitOutputTextDelta(state, delta.content));
@@ -763,6 +829,7 @@ function finalizeResponsesStream(state: ResponsesStreamState): string | null {
   state.completed = true;
 
   const events: string[] = [...emitCreated(state)];
+  const terminal = responsesTerminalState(state.finishReason);
 
   if (state.itemOpened) {
     events.push(
@@ -786,7 +853,7 @@ function finalizeResponsesStream(state: ResponsesStreamState): string | null {
         item: {
           id: state.itemId,
           type: 'message',
-          status: 'completed',
+          status: terminal.itemStatus,
           role: 'assistant',
           content: [{ type: 'output_text', text: state.text, annotations: [] }],
         },
@@ -799,7 +866,7 @@ function finalizeResponsesStream(state: ResponsesStreamState): string | null {
       model: state.model,
       created: state.createdAt,
       usage: isRecord(state.usage) ? state.usage : undefined,
-      choices: [{ message: { content: state.text } }],
+      choices: [{ message: { content: state.text }, finish_reason: state.finishReason }],
     },
     state.model,
     {
@@ -809,16 +876,16 @@ function finalizeResponsesStream(state: ResponsesStreamState): string | null {
   );
   response.id = state.responseId;
   // `created_at` is the stream-start stamp (shared across every snapshot for
-  // this id), but `completed_at` must reflect when the stream actually
-  // finished — fromChatCompletionResponse defaults it to `created`.
-  response.completed_at = Math.floor(Date.now() / 1000);
+  // this id), but only provider-confirmed completion receives a completion
+  // timestamp, taken when the stream actually finished.
+  response.completed_at = terminal.status === 'completed' ? Math.floor(Date.now() / 1000) : null;
   if (state.itemOpened && Array.isArray(response.output)) {
     const message = response.output.find((item) => isRecord(item) && item.type === 'message');
     if (isRecord(message)) message.id = state.itemId;
   }
 
   events.push(
-    formatResponsesEvent('response.completed', { type: 'response.completed', response }),
+    formatResponsesEvent(terminal.eventType, { type: terminal.eventType, response }),
     'data: [DONE]\n\n',
   );
 

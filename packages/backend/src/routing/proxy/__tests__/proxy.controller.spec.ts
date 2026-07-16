@@ -2935,14 +2935,16 @@ describe('ProxyController', () => {
         });
     }
 
-    function expectTerminalChunkBeforeDone(written: string[]): void {
+    function expectUpstreamErrorBeforeDone(written: string[]): void {
       const frames = parseDataFrames(written);
       expect(frames.length).toBeGreaterThanOrEqual(2);
       expect(frames[frames.length - 1]).toBe('[DONE]');
       const terminal = frames[frames.length - 2] as Record<string, unknown>;
-      expect(terminal.object).toBe('chat.completion.chunk');
-      const choices = terminal.choices as Array<Record<string, unknown>>;
-      expect(choices[0].finish_reason).toBe('stop');
+      expect(terminal.error).toEqual({
+        message: 'Provider stream ended before a terminal finish reason.',
+        type: 'upstream_error',
+      });
+      expect(JSON.stringify(terminal)).not.toContain('"finish_reason":"stop"');
     }
 
     function createMockStreamResponse(chunks: string[]): Response {
@@ -2967,7 +2969,7 @@ describe('ProxyController', () => {
     it.each([
       ['manifest/auto', 'scored'],
       ['openai-api/gpt-5-high', 'direct-model'],
-    ])('normalizes raw OpenAI-compatible streams for %s', async (modelId, reason) => {
+    ])('fails unterminated raw OpenAI-compatible streams for %s', async (modelId, reason) => {
       const mockProviderResp = createMockStreamResponse([
         'data: {"id":"chunk-1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\ndata: [DONE]\n\n',
       ]);
@@ -3000,7 +3002,7 @@ describe('ProxyController', () => {
       expect(headers['Content-Type']).toBe('text/event-stream');
       expect(headers['X-Manifest-Tier']).toBe('standard');
       expect(written.length).toBeGreaterThan(0);
-      expectTerminalChunkBeforeDone(written);
+      expectUpstreamErrorBeforeDone(written);
       expect(proxyService.proxyRequest.mock.calls[0][0].body.model).toBe(modelId);
     });
 

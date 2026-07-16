@@ -17,7 +17,7 @@ Make Manifest usable as a drop-in OpenAI-compatible endpoint for clients that re
 - Raw `provider/model` direct routing is accepted only when it maps unambiguously to one enabled provider/auth route. Ambiguous matches return an OpenAI-style error asking the user to configure an alias.
 - `auto` and `manifest/auto` keep the existing scoring-based route selection.
 - The reasoning header never changes `auto`, tier aliases, specificity aliases, or header-tier aliases.
-- Streamed Chat Completions responses always end with a valid terminal OpenAI chunk before `[DONE]`, regardless of whether the request used `manifest/auto`, a direct alias, a rule alias, a raw direct route, or a fallback route.
+- Streamed Chat Completions responses always end with an explicit terminal outcome before `[DONE]`, regardless of whether the request used `manifest/auto`, a direct alias, a rule alias, a raw direct route, or a fallback route. Provider finish reasons are preserved; a stream that ends without one emits a sanitized upstream error rather than fabricating a successful stop.
 
 ## Alias Types
 

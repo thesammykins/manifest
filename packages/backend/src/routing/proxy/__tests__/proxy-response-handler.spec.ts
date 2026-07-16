@@ -925,7 +925,8 @@ describe('proxy-response-handler', () => {
       expect(capturedFinalize).toBeDefined();
       expect(capturedTransform!('data: [DONE]\n\n')).toBeNull();
       const tail = capturedFinalize!();
-      expect(tail).toContain('"finish_reason":"stop"');
+      expect(tail).toContain('"type":"upstream_error"');
+      expect(tail).not.toContain('"finish_reason":"stop"');
       expect(tail).toContain('data: [DONE]');
     });
 
@@ -1118,6 +1119,7 @@ describe('proxy-response-handler', () => {
       expect(opened).toContain('event: response.output_item.added');
       expect(opened).toContain('event: response.content_part.added');
       expect(opened).toContain('event: response.output_text.delta');
+      capturedTransform!('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
 
       // finalize must close the item and terminate the stream itself, since
       // pipeStream skips its own [DONE] when a finalize is supplied.

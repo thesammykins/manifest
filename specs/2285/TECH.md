@@ -81,7 +81,7 @@ Stream correctness:
 
 - Streamed Chat Completions responses normalize terminal framing after routing has resolved, so the behavior applies equally to `auto`, `manifest/auto`, direct aliases, raw direct routes, rule aliases, and fallback-success routes.
 - Raw OpenAI-compatible streams are parsed and re-emitted as `data: <valid JSON>` frames, consuming upstream `[DONE]` and emitting exactly one downstream `[DONE]`.
-- Transformed streams that output OpenAI Chat Completions chunks use a terminal guard. If no chunk with `choices[0].finish_reason` is observed before upstream close, Manifest emits a synthetic `chat.completion.chunk` with `finish_reason: "stop"` before `[DONE]`.
+- Transformed streams that output OpenAI Chat Completions chunks use a terminal guard. Real `stop`, `length`, `content_filter`, and `tool_calls` finish reasons pass through unchanged. If no non-null `choices[0].finish_reason` is observed before upstream close, Manifest emits a sanitized OpenAI-style `upstream_error` frame before `[DONE]`; it never fabricates a successful `stop`.
 - Native `/v1/responses` streams and Anthropic `/v1/messages` passthrough streams are not rewritten by the Chat Completions terminal guard.
 
 ## Reasoning Params
@@ -122,8 +122,8 @@ Add focused coverage for:
 - Rule alias resolution.
 - Ambiguous raw direct routing.
 - `/v1/models` agent scoping and credential-free responses.
-- Stream finalization for Responses-backed transformed streams, raw OpenAI-compatible streams that end with only `[DONE]`, and transformed Chat Completions streams that close without a terminal event.
-- Streamed `/v1/chat/completions` output for `manifest/auto` and a direct alias-shaped model id has valid JSON `data:` frames, a terminal finish chunk, and `[DONE]`.
+- Stream finalization for Responses-backed transformed streams, raw OpenAI-compatible streams that end with only `[DONE]`, and transformed Chat Completions streams that close without a terminal event, with unterminated streams ending in an explicit sanitized error rather than a synthetic success.
+- Streamed `/v1/chat/completions` output for `manifest/auto` and a direct alias-shaped model id has valid JSON `data:` frames, an explicit terminal outcome, and `[DONE]`.
 - Migration/index shape.
 - Frontend creation/editing, reasoning variant generation, setup alias export, Pi setup, Warp setup, and rule exposure controls.
 
@@ -132,7 +132,7 @@ Add focused coverage for:
 Use a raw-SSE probe against a local or staging Manifest instance to compare `manifest/auto`, a direct exposed alias, and a non-streaming request. The probe should send a minimal prompt, redact the bearer token from output, and validate:
 
 - Every downstream `data:` frame parses as JSON except `data: [DONE]`.
-- A final `chat.completion.chunk` with `choices[0].finish_reason` appears before `[DONE]`.
+- A provider-supplied terminal `chat.completion.chunk` or a sanitized upstream error appears before `[DONE]`; an unterminated upstream must never be rewritten as `finish_reason: "stop"`.
 - No empty, partial, or non-JSON `data:` frames reach the client.
 
 ## Container Publishing

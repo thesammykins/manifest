@@ -424,6 +424,7 @@ describe('Responses adapter', () => {
           model: 'gpt-4o',
           choices: [
             {
+              finish_reason: 'tool_calls',
               message: {
                 content: [{ type: 'text', text: 'Hello' }],
                 tool_calls: [
@@ -470,6 +471,76 @@ describe('Responses adapter', () => {
         total_tokens: 13,
       });
     });
+
+    it.each([
+      {
+        label: 'stop',
+        finishReason: 'stop',
+        status: 'completed',
+        incompleteDetails: null,
+      },
+      {
+        label: 'tool_calls',
+        finishReason: 'tool_calls',
+        status: 'completed',
+        incompleteDetails: null,
+      },
+      {
+        label: 'legacy function_call',
+        finishReason: 'function_call',
+        status: 'completed',
+        incompleteDetails: null,
+      },
+      {
+        label: 'length',
+        finishReason: 'length',
+        status: 'incomplete',
+        incompleteDetails: { reason: 'max_output_tokens' },
+      },
+      {
+        label: 'content_filter',
+        finishReason: 'content_filter',
+        status: 'incomplete',
+        incompleteDetails: { reason: 'content_filter' },
+      },
+      {
+        label: 'missing',
+        finishReason: undefined,
+        status: 'incomplete',
+        incompleteDetails: null,
+      },
+      {
+        label: 'unknown',
+        finishReason: 'provider_specific_reason',
+        status: 'incomplete',
+        incompleteDetails: null,
+      },
+    ])(
+      'maps $label finish reasons to the matching outer and item terminal state',
+      ({ finishReason, status, incompleteDetails }) => {
+        const choice: Record<string, unknown> = {
+          message: {
+            content: 'partial or complete text',
+            tool_calls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'lookup', arguments: '{}' },
+              },
+            ],
+          },
+        };
+        if (finishReason !== undefined) choice.finish_reason = finishReason;
+
+        const result = fromChatCompletionResponse({ created: 1234, choices: [choice] }, 'gpt-4o');
+        const output = result.output as Array<Record<string, unknown>>;
+
+        expect(result.status).toBe(status);
+        expect(result.completed_at).toBe(status === 'completed' ? 1234 : null);
+        expect(result.incomplete_details).toEqual(incompleteDetails);
+        expect(output.map((item) => item.status)).toEqual([status, status]);
+      },
+    );
 
     it('handles missing choices, non-string content, and missing usage', () => {
       const result = fromChatCompletionResponse({ choices: [{ message: { content: 7 } }] }, 'm');
@@ -637,6 +708,81 @@ describe('Responses adapter', () => {
       ]);
     });
 
+    it('does not duplicate collected text already present in terminal output', () => {
+      const response = {
+        id: 'resp_1',
+        object: 'response',
+        output: [
+          {
+            type: 'message',
+            status: 'completed',
+            content: [{ type: 'output_text', text: 'Hi', annotations: [] }],
+          },
+        ],
+      };
+      const result = collectResponsesSseResponse(
+        [
+          'event: response.output_text.delta\ndata: {"delta":"Hi"}',
+          `event: response.completed\ndata: ${JSON.stringify({ response })}`,
+          '',
+        ].join('\n\n'),
+      );
+
+      expect(result).toEqual(response);
+    });
+
+    it.each([
+      {
+        event: 'response.incomplete',
+        response: {
+          id: 'resp_incomplete',
+          object: 'response',
+          status: 'incomplete',
+          completed_at: null,
+          incomplete_details: { reason: 'max_output_tokens' },
+          error: null,
+          output: [],
+        },
+      },
+      {
+        event: 'response.failed',
+        response: {
+          id: 'resp_failed',
+          object: 'response',
+          status: 'failed',
+          completed_at: null,
+          incomplete_details: null,
+          error: { type: 'upstream_error', message: 'Upstream failed.' },
+          output: [],
+        },
+      },
+    ])('preserves $event terminal responses and partial text', ({ event, response }) => {
+      const result = collectResponsesSseResponse(
+        [
+          'event: response.output_text.delta\ndata: {"delta":"Partial"}',
+          `event: ${event}\ndata: ${JSON.stringify({ response })}`,
+          '',
+        ].join('\n\n'),
+      );
+      const output = result.output as Array<Record<string, unknown>>;
+
+      expect(result).toMatchObject({
+        id: response.id,
+        object: response.object,
+        status: response.status,
+        completed_at: response.completed_at,
+        incomplete_details: response.incomplete_details,
+        error: response.error,
+      });
+      expect(output).toEqual([
+        expect.objectContaining({
+          type: 'message',
+          status: 'incomplete',
+          content: [{ type: 'output_text', text: 'Partial', annotations: [] }],
+        }),
+      ]);
+    });
+
     it('falls back to collected output text and ignores malformed events', () => {
       const result = collectResponsesSseResponse(
         [
@@ -647,6 +793,8 @@ describe('Responses adapter', () => {
       );
 
       expect(result.object).toBe('response');
+      expect(result.status).toBe('incomplete');
+      expect(result.completed_at).toBeNull();
       expect(result.output).toEqual([
         expect.objectContaining({
           type: 'message',
@@ -969,6 +1117,85 @@ describe('Responses adapter', () => {
       expect(tail).toBe('');
     });
 
+    it.each([
+      {
+        label: 'stop',
+        finishReason: 'stop',
+        status: 'completed',
+        eventType: 'response.completed',
+        incompleteDetails: null,
+      },
+      {
+        label: 'tool_calls',
+        finishReason: 'tool_calls',
+        status: 'completed',
+        eventType: 'response.completed',
+        incompleteDetails: null,
+      },
+      {
+        label: 'legacy function_call',
+        finishReason: 'function_call',
+        status: 'completed',
+        eventType: 'response.completed',
+        incompleteDetails: null,
+      },
+      {
+        label: 'length',
+        finishReason: 'length',
+        status: 'incomplete',
+        eventType: 'response.incomplete',
+        incompleteDetails: { reason: 'max_output_tokens' },
+      },
+      {
+        label: 'content_filter',
+        finishReason: 'content_filter',
+        status: 'incomplete',
+        eventType: 'response.incomplete',
+        incompleteDetails: { reason: 'content_filter' },
+      },
+      {
+        label: 'missing',
+        finishReason: undefined,
+        status: 'incomplete',
+        eventType: 'response.incomplete',
+        incompleteDetails: null,
+      },
+      {
+        label: 'unknown',
+        finishReason: 'provider_specific_reason',
+        status: 'incomplete',
+        eventType: 'response.incomplete',
+        incompleteDetails: null,
+      },
+    ])(
+      'maps $label to the matching item state and terminal event before [DONE]',
+      ({ finishReason, status, eventType, incompleteDetails }) => {
+        const t = createResponsesStreamTransformer('gpt-4o');
+        t.transform(
+          '{"choices":[{"delta":{"content":"Partial or complete"},"finish_reason":null}]}',
+        );
+        if (finishReason !== undefined) {
+          t.transform(JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }] }));
+        }
+
+        const end = t.finalize() ?? '';
+        const types = eventTypes(end);
+        const oppositeEvent =
+          eventType === 'response.completed' ? 'response.incomplete' : 'response.completed';
+        const terminal = firstEventData(end, eventType)!;
+        const itemDone = firstEventData(end, 'response.output_item.done')!;
+
+        expect(itemDone.item.status).toBe(status);
+        expect(terminal.response.status).toBe(status);
+        expect(terminal.response.incomplete_details).toEqual(incompleteDetails);
+        expect(terminal.response.completed_at).toEqual(
+          status === 'completed' ? expect.any(Number) : null,
+        );
+        expect(types).not.toContain(oppositeEvent);
+        expect(types[types.length - 1]).toBe('[DONE]');
+      },
+    );
+
     it('streams configured structured-output tool arguments as response text', () => {
       const t = createResponsesStreamTransformer('claude-sonnet-4', {
         structuredOutputToolName: 'patient_summary',
@@ -982,6 +1209,7 @@ describe('Responses adapter', () => {
         t.transform(
           'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\\"ok\\"}"}}]}}]}\n\n',
         ) ?? '';
+      t.transform('{"choices":[{"delta":{},"finish_reason":"stop"}]}');
       const end = t.finalize() ?? '';
 
       expect(firstEventData(first, 'response.output_text.delta')!.delta).toBe('{"title"');
@@ -1004,6 +1232,7 @@ describe('Responses adapter', () => {
         t.transform(
           'data: {"choices":[{"delta":{"tool_calls":[null,{"index":1},{"function":{"name":"patient_summary","arguments":"{}"}}]}}]}\n\n',
         ) ?? '';
+      t.transform('{"choices":[{"delta":{},"finish_reason":"stop"}]}');
 
       expect(firstEventData(out, 'response.output_text.delta')!.delta).toBe('{}');
       const completed = firstEventData(t.finalize() ?? '', 'response.completed')!;
@@ -1015,7 +1244,7 @@ describe('Responses adapter', () => {
       ]);
     });
 
-    it('emits no item events and an empty output for usage-only streams', () => {
+    it('emits no item events and an incomplete empty output without a finish reason', () => {
       const t = createResponsesStreamTransformer('gpt-4o');
       const out =
         t.transform(
@@ -1024,21 +1253,21 @@ describe('Responses adapter', () => {
       const end = t.finalize() ?? '';
 
       expect(eventTypes(out)).toEqual(['response.created', 'response.in_progress']);
-      expect(eventTypes(end)).toEqual(['response.completed', '[DONE]']);
-      expect(firstEventData(end, 'response.completed')!.response.output).toEqual([]);
-      expect(firstEventData(end, 'response.completed')!.response.usage).toMatchObject({
+      expect(eventTypes(end)).toEqual(['response.incomplete', '[DONE]']);
+      expect(firstEventData(end, 'response.incomplete')!.response.output).toEqual([]);
+      expect(firstEventData(end, 'response.incomplete')!.response.usage).toMatchObject({
         input_tokens: 5,
       });
     });
 
-    it('still emits created, completed, and [DONE] when the stream is empty', () => {
+    it('still emits created, incomplete, and [DONE] when the stream is empty', () => {
       const t = createResponsesStreamTransformer('gpt-4o');
       const end = t.finalize() ?? '';
 
       expect(eventTypes(end)).toEqual([
         'response.created',
         'response.in_progress',
-        'response.completed',
+        'response.incomplete',
         '[DONE]',
       ]);
     });
@@ -1064,6 +1293,7 @@ describe('Responses adapter', () => {
       try {
         const t = createResponsesStreamTransformer('gpt-4o');
         const opened = t.transform('{"choices":[{"delta":{"content":"Hi"}}]}') ?? '';
+        t.transform('{"choices":[{"delta":{},"finish_reason":"stop"}]}');
         const end = t.finalize() ?? '';
 
         const created = firstEventData(opened, 'response.created')!;

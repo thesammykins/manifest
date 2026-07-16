@@ -1,4 +1,4 @@
-import { formatSSE, isObjectRecord } from './chatgpt-helpers';
+import { isObjectRecord } from './chatgpt-helpers';
 
 export interface OpenAiChatCompletionStreamNormalizer {
   transform: (chunk: string) => string | null;
@@ -46,10 +46,6 @@ function hasFinishReason(payload: unknown): boolean {
   );
 }
 
-function terminalChunk(model: string): string {
-  return formatSSE({ delta: {}, finish_reason: 'stop' }, model);
-}
-
 function streamErrorChunk(message: string): string {
   return `data: ${JSON.stringify({
     error: {
@@ -64,6 +60,7 @@ function normalizePayload(payload: string, markTerminalSeen: () => void): string
 
   const parsed = parseJsonPayload(payload);
   if (parsed === null) {
+    markTerminalSeen();
     return streamErrorChunk('Provider returned a non-JSON stream event.');
   }
 
@@ -91,7 +88,7 @@ function normalizeSseText(sseText: string, markTerminalSeen: () => void): string
 }
 
 export function createOpenAiChatCompletionStreamNormalizer(
-  model: string,
+  _model: string,
 ): OpenAiChatCompletionStreamNormalizer {
   let terminalSeen = false;
   const markTerminalSeen = () => {
@@ -105,13 +102,13 @@ export function createOpenAiChatCompletionStreamNormalizer(
     },
 
     finalize(): string | null {
-      return `${terminalSeen ? '' : terminalChunk(model)}data: [DONE]\n\n`;
+      return `${terminalSeen ? '' : streamErrorChunk('Provider stream ended before a terminal finish reason.')}data: [DONE]\n\n`;
     },
   };
 }
 
 export function createOpenAiChatCompletionTerminalGuard(
-  model: string,
+  _model: string,
 ): OpenAiChatCompletionTerminalGuard {
   let terminalSeen = false;
   const markTerminalSeen = () => {
@@ -125,7 +122,7 @@ export function createOpenAiChatCompletionTerminalGuard(
     },
 
     finalize(): string | null {
-      return `${terminalSeen ? '' : terminalChunk(model)}data: [DONE]\n\n`;
+      return `${terminalSeen ? '' : streamErrorChunk('Provider stream ended before a terminal finish reason.')}data: [DONE]\n\n`;
     },
   };
 }
