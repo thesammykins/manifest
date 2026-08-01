@@ -85,6 +85,7 @@ interface DeviceCodeFlow {
   verificationUri: string;
   expiresAt: number;
   pollIntervalMs: number;
+  label?: string;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 2000;
@@ -101,6 +102,7 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
   const [renamingId, setRenamingId] = createSignal<string | null>(null);
   const [renameValue, setRenameValue] = createSignal('');
   const [addingAccount, setAddingAccount] = createSignal(false);
+  const [reauthenticatingLabel, setReauthenticatingLabel] = createSignal<string | null>(null);
 
   const api = () => getDeviceCodeApi(props.provId);
   const isKiro = () => props.provId === 'kiro';
@@ -127,7 +129,9 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
     }
     props.setBusy(true);
     try {
-      const label = addingAccount() ? suggestNextProviderKeyLabel(activeKeyLabels()) : undefined;
+      const label =
+        reauthenticatingLabel() ??
+        (addingAccount() ? suggestNextProviderKeyLabel(activeKeyLabels()) : undefined);
       await connectProvider(props.agentName, {
         provider: props.provId,
         apiKey: trimmed,
@@ -139,8 +143,14 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
         region: selectedRegion(),
         ...(label && { label }),
       });
-      toast.success(`${props.provDef.name} subscription connected`);
+      const wasReauth = reauthenticatingLabel();
+      toast.success(
+        wasReauth
+          ? `${props.provDef.name} account “${wasReauth}” reauthenticated`
+          : `${props.provDef.name} subscription connected`,
+      );
       setAddingAccount(false);
+      setReauthenticatingLabel(null);
       setAltToken('');
       props.onUpdate();
     } catch {
@@ -297,8 +307,14 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
 
       if (result.status === 'success') {
         clearPollTimer();
-        toast.success(`${props.provDef.name} subscription connected`);
+        const wasReauth = latest.label ?? reauthenticatingLabel();
+        toast.success(
+          wasReauth
+            ? `${props.provDef.name} account “${wasReauth}” reauthenticated`
+            : `${props.provDef.name} subscription connected`,
+        );
         setAddingAccount(false);
+        setReauthenticatingLabel(null);
         setFlow(null);
         props.onUpdate();
         return;
@@ -326,9 +342,12 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
     }
   };
 
-  const handleStart = async () => {
+  const handleStart = async (label?: string) => {
     const startOptions = buildStartOptions();
     if (startOptions === null) return;
+    const targetLabel = label?.trim() || undefined;
+    setReauthenticatingLabel(targetLabel ?? null);
+    if (targetLabel) setAddingAccount(true);
     // Open the popup synchronously inside the click handler to keep the
     // user-gesture flag alive; without this, browsers block the post-await
     // window.open as a "programmatic popup". noopener can't be used here
@@ -337,6 +356,8 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
     const popup = window.open('about:blank', '_blank');
     if (!popup) {
       toast.error('Popup was blocked by your browser. Allow popups for this site, then try again.');
+      if (targetLabel) setAddingAccount(false);
+      setReauthenticatingLabel(null);
       return;
     }
     // Defang the opener-attack vector that noopener would normally prevent;
@@ -349,18 +370,25 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
     setStatusMessage(null);
     try {
       const current = api();
-      const nextFlow = await current.start(props.agentName, startOptions);
+      const requestOptions = targetLabel
+        ? { ...(startOptions ?? {}), label: targetLabel }
+        : startOptions;
+      const nextFlow = await current.start(props.agentName, requestOptions);
       if (isDisposed || flowGeneration !== activeFlowGeneration) {
         popup.close();
         return;
       }
       popup.location.replace(nextFlow.verificationUri);
-      setFlow(nextFlow);
+      setFlow({ ...nextFlow, label: targetLabel });
       schedulePoll(nextFlow.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS, flowGeneration);
     } catch {
       popup.close();
       if (isDisposed || flowGeneration !== activeFlowGeneration) return;
       setFlow(null);
+      if (targetLabel) {
+        setAddingAccount(false);
+        setReauthenticatingLabel(null);
+      }
     } finally {
       if (isDisposed || flowGeneration !== activeFlowGeneration) return;
       props.setBusy(false);
@@ -379,6 +407,7 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
     setStatusMessage(null);
     setAltToken('');
     setAltError(null);
+    setReauthenticatingLabel(null);
     clearPollTimer();
   };
 
@@ -459,7 +488,7 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
                 <button
                   class="btn btn--primary subscription-detail__btn"
                   disabled={props.busy()}
-                  onClick={handleStart}
+                  onClick={() => handleStart()}
                 >
                   <Show when={!props.busy()} fallback={<span class="spinner" />}>
                     Connect with {props.provDef.name}
@@ -559,6 +588,14 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
                             class="btn btn--outline btn--sm"
                             style="flex-shrink: 0;"
                             disabled={props.busy()}
+                            onClick={() => handleStart(k.label)}
+                          >
+                            Reauthenticate
+                          </button>
+                          <button
+                            class="btn btn--outline btn--sm"
+                            style="flex-shrink: 0;"
+                            disabled={props.busy()}
                             onClick={() => startRename(k)}
                           >
                             Rename
@@ -638,6 +675,13 @@ const DeviceCodeDetailView: Component<Props> = (props) => {
               Connected via {props.provDef.subscriptionLabel ?? 'subscription'}
             </span>
           </div>
+          <button
+            class="btn btn--outline provider-detail__action"
+            disabled={props.busy()}
+            onClick={() => handleStart(props.activeKeys?.()[0]?.label)}
+          >
+            Reauthenticate
+          </button>
           <button
             class="btn btn--outline provider-detail__action provider-detail__disconnect"
             disabled={props.busy()}

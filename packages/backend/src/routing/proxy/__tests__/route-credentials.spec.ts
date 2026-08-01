@@ -188,5 +188,71 @@ describe('route-credentials', () => {
         keyLabel: 'Work',
       });
     });
+
+    it('tries the preferred subscription account and then the next same-provider account', async () => {
+      const candidateService = providerKeyService as typeof providerKeyService & {
+        getProviderKeyCandidates: jest.Mock;
+      };
+      candidateService.getProviderKeyCandidates = jest.fn().mockResolvedValue([
+        {
+          apiKey: JSON.stringify({ t: 'expired-default', r: 'refresh-default', e: 0 }),
+          id: 'default-id',
+          region: null,
+          label: 'Default',
+          priority: 0,
+        },
+        {
+          apiKey: 'backup-token',
+          id: 'backup-id',
+          region: 'us',
+          label: 'Backup',
+          priority: 1,
+        },
+      ]);
+      (oauth.openaiOauth.unwrapToken as jest.Mock)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce('backup-access');
+
+      const result = await resolveRouteCredentials(
+        { providerKeyService: candidateService, oauth },
+        {
+          agentId: 'a1',
+          tenantId: 't1',
+          provider: 'openai',
+          authType: 'subscription',
+        },
+      );
+
+      expect(result).toMatchObject({
+        ok: true,
+        apiKey: 'backup-access',
+        rawApiKey: 'backup-token',
+        tenantProviderId: 'backup-id',
+        keyLabel: 'Backup',
+        providerRegion: 'us',
+      });
+      expect(candidateService.getProviderKeyCandidates).toHaveBeenCalledWith(
+        't1',
+        'openai',
+        'subscription',
+        undefined,
+        'a1',
+        'same_provider_failover',
+      );
+      expect(oauth.openaiOauth.unwrapToken).toHaveBeenNthCalledWith(
+        1,
+        expect.any(String),
+        'a1',
+        't1',
+        'Default',
+      );
+      expect(oauth.openaiOauth.unwrapToken).toHaveBeenNthCalledWith(
+        2,
+        'backup-token',
+        'a1',
+        't1',
+        'Backup',
+      );
+    });
   });
 });

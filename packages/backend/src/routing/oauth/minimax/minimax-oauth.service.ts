@@ -49,6 +49,7 @@ interface PendingMinimaxOAuth {
   tenantId: string;
   /** Acting user, audit only (tenant_providers.created_by_user_id). */
   createdByUserId: string | null;
+  label?: string;
   baseUrl: string;
   resourceUrl: string;
   expiresAt: number;
@@ -107,6 +108,7 @@ export class MinimaxOauthService {
     tenantId: string,
     region: MinimaxRegion = DEFAULT_REGION,
     createdByUserId?: string | null,
+    label?: string,
   ): Promise<MinimaxOAuthStartResult> {
     this.cleanupExpired();
     const verifier = randomBytes(32).toString('base64url');
@@ -151,6 +153,7 @@ export class MinimaxOauthService {
       agentId,
       tenantId,
       createdByUserId: createdByUserId ?? null,
+      ...(label ? { label } : {}),
       baseUrl,
       resourceUrl,
       expiresAt,
@@ -228,17 +231,26 @@ export class MinimaxOauthService {
       e: toAbsoluteExpiryTimestamp(payload.expired_in),
       u: resourceUrl,
     };
-    const label = await this.providerService.nextOAuthLabel(pending.tenantId, 'minimax');
-    const { provider: savedProvider } = await this.providerService.upsertProvider(
-      pending.agentId,
-      pending.tenantId,
-      'minimax',
-      JSON.stringify(blob),
-      'subscription',
-      undefined,
-      label,
-      pending.createdByUserId,
-    );
+    const { provider: savedProvider } = pending.label
+      ? await this.providerService.reauthenticateProvider(
+          pending.agentId,
+          pending.tenantId,
+          'minimax',
+          'subscription',
+          pending.label,
+          JSON.stringify(blob),
+          undefined,
+        )
+      : await this.providerService.upsertProvider(
+          pending.agentId,
+          pending.tenantId,
+          'minimax',
+          JSON.stringify(blob),
+          'subscription',
+          undefined,
+          await this.providerService.nextOAuthLabel(pending.tenantId, 'minimax'),
+          pending.createdByUserId,
+        );
     try {
       await this.discoveryService.discoverModels(savedProvider);
     } catch (err) {

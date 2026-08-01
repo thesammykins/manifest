@@ -39,6 +39,7 @@ describe('OAuthPendingFlowStore', () => {
       'v1',
       'agent-1',
       'tenant-1',
+      null,
       new Date('2026-05-01T12:10:00Z'),
     ]);
   });

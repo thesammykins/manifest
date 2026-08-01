@@ -72,13 +72,17 @@ export class AnthropicOauthService {
    * Build the authorize URL the user opens in a new tab. The state is also
    * returned so the SPA can pre-fill it on the paste-code step.
    */
-  async generateAuthorizationUrl(agentId: string, tenantId: string): Promise<AuthorizeResult> {
+  async generateAuthorizationUrl(
+    agentId: string,
+    tenantId: string,
+    label?: string,
+  ): Promise<AuthorizeResult> {
     const { verifier, challenge } = generatePkce();
     // Claude Code's Anthropic OAuth flow uses the PKCE verifier as state.
     const state = verifier;
     await this.pendingFlows.create(
       PROVIDER,
-      { state, verifier, agentId, tenantId },
+      { state, verifier, agentId, tenantId, ...(label ? { label } : {}) },
       ANTHROPIC_OAUTH.STATE_TTL_MS,
     );
 
@@ -151,17 +155,25 @@ export class AnthropicOauthService {
       e: Date.now() + data.expires_in * 1000,
     };
 
-    const label = await this.providerService.nextOAuthLabel(pending.tenantId, PROVIDER);
-    const { provider: savedProvider } = await this.providerService.upsertProvider(
-      pending.agentId,
-      pending.tenantId,
-      PROVIDER,
-      serializeOAuthTokenBlob(blob),
-      'subscription',
-      undefined,
-      label,
-      createdByUserId,
-    );
+    const { provider: savedProvider } = pending.label
+      ? await this.providerService.reauthenticateProvider(
+          pending.agentId,
+          pending.tenantId,
+          PROVIDER,
+          'subscription',
+          pending.label,
+          serializeOAuthTokenBlob(blob),
+        )
+      : await this.providerService.upsertProvider(
+          pending.agentId,
+          pending.tenantId,
+          PROVIDER,
+          serializeOAuthTokenBlob(blob),
+          'subscription',
+          undefined,
+          await this.providerService.nextOAuthLabel(pending.tenantId, PROVIDER),
+          createdByUserId,
+        );
     try {
       await this.discoveryService.discoverModels(savedProvider);
     } catch (err) {

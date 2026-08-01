@@ -458,6 +458,74 @@ describe('ProviderService — route-only cleanup paths', () => {
     });
   });
 
+  describe('reauthenticateProvider', () => {
+    let originalSecret: string | undefined;
+
+    beforeEach(() => {
+      originalSecret = process.env.BETTER_AUTH_SECRET;
+      process.env.BETTER_AUTH_SECRET = 'a'.repeat(48);
+    });
+
+    afterEach(() => {
+      if (originalSecret === undefined) delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = originalSecret;
+    });
+
+    it('updates the existing labelled row in place without creating a new key', async () => {
+      const existing = Object.assign(new TenantProvider(), {
+        id: 'provider-backup',
+        tenant_id: 'tenant-1',
+        provider: 'openai',
+        auth_type: 'subscription',
+        label: 'Backup',
+        priority: 2,
+        is_active: false,
+        api_key_encrypted: 'old-encrypted',
+        key_prefix: 'old-pref',
+        region: null,
+        connected_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      });
+      providerRepo.find.mockResolvedValueOnce([existing]);
+
+      const result = await svc.reauthenticateProvider(
+        'agent-1',
+        'tenant-1',
+        'openai',
+        'subscription',
+        'Backup',
+        'new-refreshable-token',
+      );
+
+      expect(result.isNew).toBe(false);
+      expect(result.provider).toBe(existing);
+      expect(existing.id).toBe('provider-backup');
+      expect(existing.label).toBe('Backup');
+      expect(existing.priority).toBe(2);
+      expect(existing.is_active).toBe(true);
+      expect(existing.api_key_encrypted).not.toBe('old-encrypted');
+      expect(providerRepo.insert).not.toHaveBeenCalled();
+      expect(routingCache.invalidateAgent).toHaveBeenCalledWith('agent-1');
+      expect(routingCache.invalidateTenant).toHaveBeenCalledWith('tenant-1');
+    });
+
+    it('rejects an unknown label instead of creating a new account', async () => {
+      providerRepo.find.mockResolvedValueOnce([]);
+
+      await expect(
+        svc.reauthenticateProvider(
+          'agent-1',
+          'tenant-1',
+          'openai',
+          'subscription',
+          'Missing',
+          'new-token',
+        ),
+      ).rejects.toThrow(/not found/);
+      expect(providerRepo.insert).not.toHaveBeenCalled();
+    });
+  });
+
   describe('upsertProvider — Bedrock region', () => {
     let originalSecret: string | undefined;
 

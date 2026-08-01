@@ -89,6 +89,8 @@ interface RedirectPkcePendingOAuth {
   tenantId: string;
   /** Acting user, audit only (tenant_providers.created_by_user_id). */
   createdByUserId: string | null;
+  /** Existing account to replace in place; omitted means add a new account. */
+  label?: string;
   backendUrl: string;
   expiresAt: number;
 }
@@ -142,6 +144,7 @@ export abstract class RedirectPkceOauthBaseService {
     tenantId: string,
     backendUrl?: string,
     createdByUserId?: string | null,
+    label?: string,
   ): Promise<string> {
     const state = generateState();
     const { verifier, challenge } = generatePkce();
@@ -154,6 +157,7 @@ export abstract class RedirectPkceOauthBaseService {
       agentId,
       tenantId,
       createdByUserId: createdByUserId ?? null,
+      ...(label ? { label } : {}),
       backendUrl: safeBackendUrl,
     });
     if (this.useCallbackServer) {
@@ -212,20 +216,25 @@ export abstract class RedirectPkceOauthBaseService {
     // exchange to discover their assigned project id. The result lives in
     // `blob.u` and is preserved across refreshes by `unwrapToken`.
     const blob = await this.enrichBlob(baseBlob);
-    const label = await this.providerService.nextOAuthLabel(
-      pending.tenantId,
-      this.oauthConfig.providerId,
-    );
-    const { provider: savedProvider } = await this.providerService.upsertProvider(
-      pending.agentId,
-      pending.tenantId,
-      this.oauthConfig.providerId,
-      serializeOAuthTokenBlob(blob),
-      'subscription',
-      undefined,
-      label,
-      pending.createdByUserId,
-    );
+    const { provider: savedProvider } = pending.label
+      ? await this.providerService.reauthenticateProvider(
+          pending.agentId,
+          pending.tenantId,
+          this.oauthConfig.providerId,
+          'subscription',
+          pending.label,
+          serializeOAuthTokenBlob(blob),
+        )
+      : await this.providerService.upsertProvider(
+          pending.agentId,
+          pending.tenantId,
+          this.oauthConfig.providerId,
+          serializeOAuthTokenBlob(blob),
+          'subscription',
+          undefined,
+          await this.providerService.nextOAuthLabel(pending.tenantId, this.oauthConfig.providerId),
+          pending.createdByUserId,
+        );
     try {
       await this.discoveryService.discoverModels(savedProvider);
     } catch (err) {

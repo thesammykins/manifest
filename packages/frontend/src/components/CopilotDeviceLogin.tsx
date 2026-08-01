@@ -44,6 +44,7 @@ const CopilotDeviceLogin: Component<Props> = (props) => {
   const [error, setError] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
+  const [reauthenticatingLabel, setReauthenticatingLabel] = createSignal<string | null>(null);
   let pollTimeout: ReturnType<typeof setTimeout> | undefined;
   let cancelled = false;
 
@@ -57,58 +58,73 @@ const CopilotDeviceLogin: Component<Props> = (props) => {
     if (pollTimeout) clearTimeout(pollTimeout);
   });
 
-  const startLogin = async () => {
+  const startLogin = async (label?: string) => {
     setPhase('loading');
     setError('');
+    setReauthenticatingLabel(label ?? null);
     cancelled = false;
     try {
       const result = await copilotDeviceCode(props.agentName);
       setUserCode(result.user_code);
       setVerificationUri(result.verification_uri);
       setPhase('awaiting');
-      schedulePoll(result.device_code, Math.max(result.interval, 5));
+      schedulePoll(result.device_code, Math.max(result.interval, 5), 0, label);
     } catch {
+      setReauthenticatingLabel(null);
       setError('Failed to start GitHub login. Please try again.');
       setPhase('error');
     }
   };
 
-  const schedulePoll = (code: string, delaySec: number, errorCount = 0) => {
+  const schedulePoll = (code: string, delaySec: number, errorCount = 0, label?: string) => {
     if (cancelled) return;
     pollTimeout = setTimeout(async () => {
       if (cancelled) return;
       try {
-        const result = await copilotPollToken(props.agentName, code);
+        const result = await copilotPollToken(props.agentName, code, label);
         if (cancelled) return;
-        const next = handlePollResult(result.status, delaySec);
-        if (next > 0) schedulePoll(code, next, 0);
+        const next = handlePollResult(result.status, delaySec, label);
+        if (next > 0) schedulePoll(code, next, 0, label);
       } catch {
         if (cancelled) return;
         const nextErrors = errorCount + 1;
         if (nextErrors >= MAX_POLL_ERRORS) {
+          setReauthenticatingLabel(null);
           setError('Connection lost. Please try again.');
           setPhase('error');
         } else {
-          schedulePoll(code, delaySec, nextErrors);
+          schedulePoll(code, delaySec, nextErrors, label);
         }
       }
     }, delaySec * 1000);
   };
 
   /** Returns next delay (seconds), or 0 to stop. */
-  const handlePollResult = (status: CopilotPollStatus, currentDelay: number): number => {
+  const handlePollResult = (
+    status: CopilotPollStatus,
+    currentDelay: number,
+    label?: string,
+  ): number => {
     if (status === 'complete') {
       setPhase('success');
-      toast.success('GitHub Copilot connected');
+      const wasReauth = label ?? reauthenticatingLabel();
+      toast.success(
+        wasReauth
+          ? `GitHub Copilot account “${wasReauth}” reauthenticated`
+          : 'GitHub Copilot connected',
+      );
+      setReauthenticatingLabel(null);
       props.onConnected();
       return 0;
     }
     if (status === 'expired') {
+      setReauthenticatingLabel(null);
       setError('Device code expired. Please try again.');
       setPhase('error');
       return 0;
     }
     if (status === 'denied') {
+      setReauthenticatingLabel(null);
       setError('Authorization was denied.');
       setPhase('error');
       return 0;
@@ -206,6 +222,13 @@ const CopilotDeviceLogin: Component<Props> = (props) => {
                       </div>
                     </div>
                     <button
+                      class="btn btn--outline btn--sm"
+                      disabled={busy()}
+                      onClick={() => startLogin(k.label)}
+                    >
+                      Reauthenticate
+                    </button>
+                    <button
                       class="provider-detail__disconnect-icon"
                       disabled={busy()}
                       onClick={() => handleDeleteKey(k.label)}
@@ -234,6 +257,15 @@ const CopilotDeviceLogin: Component<Props> = (props) => {
             </ul>
           </div>
         </Show>
+        <Show when={!isMultiKey() && activeKeys()[0]?.label}>
+          <button
+            class="btn btn--outline provider-detail__action"
+            disabled={busy()}
+            onClick={() => startLogin(activeKeys()[0]?.label)}
+          >
+            Reauthenticate
+          </button>
+        </Show>
         <Show when={error()}>
           <div class="provider-detail__error">{error()}</div>
         </Show>
@@ -241,7 +273,7 @@ const CopilotDeviceLogin: Component<Props> = (props) => {
           <button
             class="btn btn--primary provider-detail__action"
             disabled={busy()}
-            onClick={startLogin}
+            onClick={() => startLogin()}
           >
             <Show when={!busy()} fallback={<span class="spinner" />}>
               Add another key
@@ -267,7 +299,7 @@ const CopilotDeviceLogin: Component<Props> = (props) => {
         <Show when={error()}>
           <div class="provider-detail__error">{error()}</div>
         </Show>
-        <button class="btn btn--primary provider-detail__action" onClick={startLogin}>
+        <button class="btn btn--primary provider-detail__action" onClick={() => startLogin()}>
           Sign in with GitHub
         </button>
       </Show>

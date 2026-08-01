@@ -23,6 +23,7 @@ import { SpecificityPenaltyService } from './specificity-penalty.service';
 import { AgentModelParamsService } from './agent-model-params.service';
 import { ProviderParamSpecService } from './provider-param-spec.service';
 import { CodexAliasService } from './codex-alias.service';
+import { ProviderMigrationService } from './provider-migration.service';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { CodexAliasService } from './codex-alias.service';
     AgentModelParamsService,
     ProviderParamSpecService,
     CodexAliasService,
+    ProviderMigrationService,
   ],
   exports: [
     TypeOrmModule,
@@ -67,6 +69,7 @@ import { CodexAliasService } from './codex-alias.service';
     AgentModelParamsService,
     ProviderParamSpecService,
     CodexAliasService,
+    ProviderMigrationService,
   ],
 })
 export class RoutingCoreModule {}

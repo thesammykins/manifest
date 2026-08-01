@@ -1,4 +1,3 @@
-import type { AuthType } from 'manifest-shared';
 import {
   IsString,
   IsIn,
@@ -14,7 +13,13 @@ import {
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
-import { AUTH_TYPES, RESPONSE_MODES, TIER_SLOTS, type ResponseMode } from 'manifest-shared';
+import {
+  AUTH_TYPES,
+  RESPONSE_MODES,
+  TIER_SLOTS,
+  type AuthType,
+  type ResponseMode,
+} from 'manifest-shared';
 import { PROVIDER_BY_ID_OR_ALIAS } from '../../common/constants/providers';
 
 const KNOWN_PROVIDER_IDS: readonly string[] = Array.from(PROVIDER_BY_ID_OR_ALIAS.keys());
@@ -123,6 +128,41 @@ export class AgentProviderKeyParamDto {
   label!: string;
 }
 
+export class ProviderMigrationEndpointDto {
+  @IsString()
+  @IsNotEmpty()
+  provider!: string;
+
+  @IsIn(AUTH_TYPES)
+  authType!: AuthType;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(MAX_PROVIDER_KEY_LABEL_LENGTH)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  label!: string;
+}
+
+export class ProviderMigrationDto {
+  @ValidateNested()
+  @Type(() => ProviderMigrationEndpointDto)
+  source!: ProviderMigrationEndpointDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProviderMigrationEndpointDto)
+  target?: ProviderMigrationEndpointDto;
+
+  @IsIn(['move_routes', 'enable_alias_failover'])
+  mode!: 'move_routes' | 'enable_alias_failover';
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  aliasIds?: string[];
+}
+
 export class RemoveProviderQueryDto {
   @IsOptional()
   @IsIn(AUTH_TYPES)
@@ -195,6 +235,13 @@ export class CopilotPollDto {
   @IsString()
   @IsNotEmpty()
   deviceCode!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(MAX_PROVIDER_KEY_LABEL_LENGTH)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  label?: string;
 }
 
 export class SetFallbacksDto {

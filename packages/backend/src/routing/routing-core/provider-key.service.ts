@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import type { AuthType, ModelRoute } from 'manifest-shared';
+import type { AuthType, CredentialSelectionMode, ModelRoute } from 'manifest-shared';
 import { TenantProvider } from '../../entities/tenant-provider.entity';
 import { AgentEnabledProvider } from '../../entities/agent-enabled-provider.entity';
 import { ModelPricingCacheService } from '../../model-prices/model-pricing-cache.service';
@@ -107,9 +107,44 @@ export class ProviderKeyService {
     if (keys.length === 0) return null;
     if (label) {
       const match = keys.find((k) => k.label.toLowerCase() === label.toLowerCase());
-      if (match) return match;
+      // A label on a route is an explicit account pin. Never reinterpret a
+      // stale pin as the first/default account: doing so can silently send a
+      // request through the wrong subscription.
+      return match ?? null;
     }
     return keys[0];
+  }
+
+  /**
+   * Returns the credential candidates for one route hop in deterministic
+   * priority order. Subscription failover keeps the preferred label first,
+   * then exposes the remaining active credentials for the same provider and
+   * auth type. Pinned selection is always exact.
+   */
+  async getProviderKeyCandidates(
+    tenantId: string,
+    provider: string,
+    authType?: AuthType,
+    preferredLabel?: string,
+    agentId?: string,
+    mode?: CredentialSelectionMode,
+  ): Promise<CachedProviderKey[]> {
+    const keys = await this.getProviderKeys(tenantId, provider, authType, agentId);
+    const effectiveMode: CredentialSelectionMode =
+      mode ?? (preferredLabel ? 'pinned' : 'same_provider_failover');
+    if (effectiveMode === 'pinned') {
+      if (!preferredLabel) return keys.slice(0, 1);
+      const exact = keys.find((key) => key.label.toLowerCase() === preferredLabel.toLowerCase());
+      return exact ? [exact] : [];
+    }
+
+    // Failover is intentionally limited to a single provider/auth tuple by
+    // getProviderKeys. API-key and subscription credentials therefore never
+    // become automatic fallbacks for one another.
+    if (!preferredLabel) return keys;
+    const preferred = keys.find((key) => key.label.toLowerCase() === preferredLabel.toLowerCase());
+    if (!preferred) return keys;
+    return [preferred, ...keys.filter((key) => key.id !== preferred.id)];
   }
 
   /**
@@ -125,7 +160,14 @@ export class ProviderKeyService {
     agentId?: string,
   ): Promise<boolean> {
     if (!route.provider) return false;
-    const keys = await this.getProviderKeys(tenantId, route.provider, route.authType, agentId);
+    const keys = await this.getProviderKeyCandidates(
+      tenantId,
+      route.provider,
+      route.authType,
+      route.keyLabel ?? undefined,
+      agentId,
+      route.keyLabel ? 'pinned' : 'same_provider_failover',
+    );
     return keys.length > 0;
   }
 
@@ -372,7 +414,12 @@ export class ProviderKeyService {
    * asking the ambiguous question. Routes without a provider pin keep the
    * legacy name-only behavior.
    */
-  async isRouteAvailable(tenantId: string, route: ModelRoute, agentId?: string): Promise<boolean> {
+  async isRouteAvailable(
+    tenantId: string,
+    route: ModelRoute,
+    agentId?: string,
+    credentialMode?: CredentialSelectionMode,
+  ): Promise<boolean> {
     if (agentId && this.modelFilters && (await this.modelFilters.isRouteDisabled(agentId, route))) {
       return false;
     }
@@ -380,6 +427,16 @@ export class ProviderKeyService {
       return this.isModelAvailable(tenantId, route.model, agentId);
     }
     const providerNames = expandProviderNames([route.provider]);
+    const effectiveMode = credentialMode ?? (route.keyLabel ? 'pinned' : 'same_provider_failover');
+    const credentialCandidates = await this.getProviderKeyCandidates(
+      tenantId,
+      route.provider,
+      route.authType,
+      route.keyLabel ?? undefined,
+      agentId,
+      effectiveMode,
+    );
+    if (credentialCandidates.length === 0) return false;
     const discovered = await this.discoveryService.getModelsForAgent(tenantId, agentId);
     const connectionModels = discovered.filter(
       (m) =>
@@ -404,11 +461,21 @@ export class ProviderKeyService {
         agentId,
       )
     ).filter(isManifestUsableProvider);
-    return records.some(
+    const matchingRecords = records.filter(
       (r) =>
         providerNames.has(r.provider.toLowerCase()) &&
         (!route.authType || r.auth_type === route.authType),
     );
+    if (matchingRecords.length === 0) return false;
+    if (effectiveMode === 'pinned' && route.keyLabel) {
+      return matchingRecords.some(
+        (record) => record.label.toLowerCase() === route.keyLabel!.toLowerCase(),
+      );
+    }
+    return matchingRecords.some((record) => {
+      if (!record.api_key_encrypted && record.auth_type !== 'local') return false;
+      return true;
+    });
   }
 
   /**

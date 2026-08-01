@@ -1,5 +1,10 @@
 import { Entity, Column, PrimaryColumn, Index } from 'typeorm';
-import type { ModelRoute, RequestParamDefaults, ResponseMode } from 'manifest-shared';
+import type {
+  CredentialSelectionMode,
+  ModelRoute,
+  RequestParamDefaults,
+  ResponseMode,
+} from 'manifest-shared';
 import { timestampType, timestampDefault } from '../common/utils/postgres-sql';
 
 export const EXPOSED_MODEL_SOURCE_KINDS = ['direct', 'tier', 'specificity', 'header_tier'] as const;
@@ -38,6 +43,10 @@ export class ExposedModelRoute {
 
   @Column('jsonb', { nullable: true })
   fallback_routes!: ModelRoute[] | null;
+
+  /** Direct aliases may pin one account or fail over within the same provider. */
+  @Column('varchar', { nullable: true, default: null })
+  credential_mode!: CredentialSelectionMode | null;
 
   @Column('jsonb', { nullable: true })
   request_params!: RequestParamDefaults | null;

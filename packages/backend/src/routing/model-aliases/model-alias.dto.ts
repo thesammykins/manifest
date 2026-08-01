@@ -11,7 +11,12 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { RESPONSE_MODES, type ResponseMode } from 'manifest-shared';
+import {
+  CREDENTIAL_SELECTION_MODES,
+  RESPONSE_MODES,
+  type CredentialSelectionMode,
+  type ResponseMode,
+} from 'manifest-shared';
 import {
   EXPOSED_MODEL_SOURCE_KINDS,
   type ExposedModelSourceKind,
@@ -59,6 +64,10 @@ export class CreateModelAliasDto {
   fallback_routes?: ModelRouteDto[];
 
   @IsOptional()
+  @IsIn(CREDENTIAL_SELECTION_MODES)
+  credential_mode?: CredentialSelectionMode;
+
+  @IsOptional()
   @IsObject()
   request_params?: Record<string, unknown>;
 
@@ -100,6 +109,10 @@ export class UpdateModelAliasDto {
   @ValidateNested({ each: true })
   @Type(() => ModelRouteDto)
   fallback_routes?: ModelRouteDto[] | null;
+
+  @IsOptional()
+  @IsIn(CREDENTIAL_SELECTION_MODES)
+  credential_mode?: CredentialSelectionMode;
 
   @IsOptional()
   @IsObject()

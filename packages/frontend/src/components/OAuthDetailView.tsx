@@ -67,6 +67,7 @@ const OAuthDetailView: Component<Props> = (props) => {
   const [renamingId, setRenamingId] = createSignal<string | null>(null);
   const [renameValue, setRenameValue] = createSignal('');
   const [addingAccount, setAddingAccount] = createSignal(false);
+  const [reauthenticatingLabel, setReauthenticatingLabel] = createSignal<string | null>(null);
 
   // Dispose the OAuth popup monitor if the view unmounts mid-flow, otherwise its
   // 300ms URL poll keeps running after the component is gone.
@@ -98,7 +99,13 @@ const OAuthDetailView: Component<Props> = (props) => {
     setPasteError(null);
     setOauthState(null);
     setAddingAccount(false);
-    toast.success(`${props.provDef.name} subscription connected`);
+    const wasReauth = reauthenticatingLabel();
+    setReauthenticatingLabel(null);
+    toast.success(
+      wasReauth
+        ? `${props.provDef.name} account “${wasReauth}” reauthenticated`
+        : `${props.provDef.name} subscription connected`,
+    );
     props.onUpdate();
   };
 
@@ -126,12 +133,16 @@ const OAuthDetailView: Component<Props> = (props) => {
     if (pasteFlowActive() && flowHasConnected()) finishOAuthSuccess();
   });
 
-  const handleOAuthLogin = async () => {
+  const handleOAuthLogin = async (label?: string) => {
+    setReauthenticatingLabel(label ?? null);
+    if (label) setAddingAccount(true);
     props.setBusy(true);
     setPasteUrl('');
     setPasteError(null);
     try {
-      const { url } = await oauthApi().getUrl(props.agentName);
+      const { url } = label
+        ? await oauthApi().getUrl(props.agentName, label)
+        : await oauthApi().getUrl(props.agentName);
       try {
         setOauthState(new URL(url).searchParams.get('state'));
       } catch {
@@ -143,6 +154,7 @@ const OAuthDetailView: Component<Props> = (props) => {
           'Popup was blocked by your browser. Allow popups for this site, then try again.',
         );
         if (props.connected()) setAddingAccount(false);
+        setReauthenticatingLabel(null);
         setOauthState(null);
         props.setBusy(false);
         return;
@@ -168,6 +180,7 @@ const OAuthDetailView: Component<Props> = (props) => {
       );
     } catch {
       if (props.connected()) setAddingAccount(false);
+      setReauthenticatingLabel(null);
       props.setBusy(false);
     }
   };
@@ -206,6 +219,7 @@ const OAuthDetailView: Component<Props> = (props) => {
     setPasteUrl('');
     setPasteError(null);
     setOauthState(null);
+    setReauthenticatingLabel(null);
   };
 
   const handleDisconnect = async () => {
@@ -286,7 +300,7 @@ const OAuthDetailView: Component<Props> = (props) => {
               <button
                 class="btn btn--primary provider-detail__action"
                 disabled={props.busy()}
-                onClick={handleOAuthLogin}
+                onClick={() => handleOAuthLogin()}
               >
                 <Show when={!props.busy()} fallback={<span class="spinner" />}>
                   Log in with {props.provDef.name}
@@ -400,6 +414,14 @@ const OAuthDetailView: Component<Props> = (props) => {
                             class="btn btn--outline btn--sm"
                             style="flex-shrink: 0;"
                             disabled={props.busy()}
+                            onClick={() => handleOAuthLogin(k.label)}
+                          >
+                            Reauthenticate
+                          </button>
+                          <button
+                            class="btn btn--outline btn--sm"
+                            style="flex-shrink: 0;"
+                            disabled={props.busy()}
                             onClick={() => startRename(k)}
                           >
                             Rename
@@ -486,6 +508,13 @@ const OAuthDetailView: Component<Props> = (props) => {
             </span>
           </div>
           <div class="provider-detail__footer">
+            <button
+              class="btn btn--outline provider-detail__action"
+              disabled={props.busy()}
+              onClick={() => handleOAuthLogin(props.activeKeys?.()[0]?.label)}
+            >
+              Reauthenticate
+            </button>
             <button
               class="btn btn--outline provider-detail__disconnect"
               disabled={props.busy()}

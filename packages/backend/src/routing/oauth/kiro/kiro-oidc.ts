@@ -67,6 +67,8 @@ export function buildKiroTokenUrl(baseUrl: string): string {
 export interface KiroAuthorizationOptions {
   startUrl?: string;
   region?: string;
+  /** Existing account label to replace; omitted starts a new account flow. */
+  label?: string;
 }
 
 export class KiroAuthorizationOptionsError extends Error {

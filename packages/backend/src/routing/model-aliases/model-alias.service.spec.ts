@@ -204,8 +204,8 @@ describe('ModelAliasService', () => {
         provider: 'openai',
         authType: 'api_key',
         model: 'gpt-5',
-        keyLabel: 'Default',
       });
+      expect(result.resolved.credential_mode).toBe('same_provider_failover');
       expect(result.requestParams).toEqual({ reasoning_effort: 'high' });
     }
     expect(resolveService.resolveForTier).not.toHaveBeenCalled();
@@ -230,7 +230,6 @@ describe('ModelAliasService', () => {
         provider: 'openai',
         authType: 'api_key',
         model: 'gpt-4o-mini',
-        keyLabel: 'Default',
       });
       expect(result.resolved.fallback_routes).toBeNull();
     }
@@ -394,8 +393,8 @@ describe('ModelAliasService', () => {
         provider: 'openai',
         authType: 'subscription',
         model: 'gpt-5',
-        keyLabel: 'Default',
       });
+      expect(result.resolved.credential_mode).toBe('same_provider_failover');
     }
   });
 

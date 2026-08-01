@@ -43,23 +43,33 @@ export class OpenaiOauthController {
     @Query('agentName') agentName: string,
     @TenantCtx() ctx: TenantContext,
     @Req() req: Request,
+    @Query('label') label: string | string[] | undefined = undefined,
   ) {
     if (!agentName) {
       throw new HttpException('agentName query parameter is required', HttpStatus.BAD_REQUEST);
     }
     const agent = await this.resolveAgent.resolve(ctx.tenantId, agentName);
+    const keyLabel = optionalTrimmedStringQuery(label, 'label');
     // Prefer the operator-configured BETTER_AUTH_URL so a forged Host header
     // can't redirect the OAuth flow. Fall back to the request's host:port for
     // the dev case where BETTER_AUTH_URL isn't set.
     const trustedBackendUrl = this.configService.get<string>('BETTER_AUTH_URL');
     const backendUrl = trustedBackendUrl || `${req.protocol}://${req.get('host')}`;
     try {
-      const url = await this.oauthService.generateAuthorizationUrl(
-        agent.id,
-        agent.tenant_id,
-        backendUrl,
-        ctx.userId,
-      );
+      const url = keyLabel
+        ? await this.oauthService.generateAuthorizationUrl(
+            agent.id,
+            agent.tenant_id,
+            backendUrl,
+            ctx.userId,
+            keyLabel,
+          )
+        : await this.oauthService.generateAuthorizationUrl(
+            agent.id,
+            agent.tenant_id,
+            backendUrl,
+            ctx.userId,
+          );
       return { url };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start OAuth callback server';

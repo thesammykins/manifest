@@ -696,28 +696,16 @@ export class ResolveService {
   }
 
   /**
-   * Fill in `route.keyLabel` from the tenant's default (priority-0) key for
-   * (route.provider, route.authType) when the route doesn't already pin a
-   * specific label. The proxy needs a concrete keyLabel to pick the right row
-   * in `tenant_providers`; without this, multi-key users would always hit the
-   * first key instead of the default key for the selected auth mode.
-   *
-   * authType is taken from the route itself, not from any assignment-level
-   * legacy field.
+   * Keep an unlabelled route unlabelled. The proxy owns credential selection:
+   * an absent label means the route is eligible for same-provider subscription
+   * failover, while an explicit label remains an exact account pin.
    */
   private async enrichRouteKeyLabel(
-    agentId: string,
-    tenantId: string,
+    _agentId: string,
+    _tenantId: string,
     route: ModelRoute,
   ): Promise<ModelRoute> {
-    if (route.keyLabel) return route;
-    const label = await this.providerKeyService.getDefaultKeyLabel(
-      tenantId,
-      route.provider,
-      route.authType,
-      agentId,
-    );
-    return label ? { ...route, keyLabel: label } : route;
+    return route;
   }
 
   /**

@@ -139,6 +139,7 @@ describe('ModelAliasesPanel', () => {
       expect(onUpdate).toHaveBeenCalledWith('alias-1', {
         model_id: 'openai-api/gpt-5-medium',
         display_name: 'GPT 5 low',
+        credential_mode: 'pinned',
         request_params: { reasoning_effort: 'low' },
       });
     });
@@ -193,6 +194,7 @@ describe('ModelAliasesPanel', () => {
       expect(onUpdate).toHaveBeenCalledWith('alias-1', {
         model_id: 'openai-api/gpt-5-low',
         display_name: 'GPT 5 low',
+        credential_mode: 'same_provider_failover',
         request_params: { reasoning_effort: 'high' },
       });
     });

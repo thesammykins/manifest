@@ -14,6 +14,7 @@ import { TierAssignment } from '../../entities/tier-assignment.entity';
 import { SpecificityAssignment } from '../../entities/specificity-assignment.entity';
 import { Agent } from '../../entities/agent.entity';
 import { HeaderTier } from '../../entities/header-tier.entity';
+import { ExposedModelRoute } from '../../entities/exposed-model-route.entity';
 import { AgentMessage } from '../../entities/agent-message.entity';
 import { ModelPricingCacheService } from '../../model-prices/model-pricing-cache.service';
 import { RoutingCacheService } from './routing-cache.service';
@@ -44,6 +45,7 @@ import {
 import { CodexAliasService } from './codex-alias.service';
 import { filterProvidersForDeployment } from '../../common/utils/provider-availability';
 import { getManagedFreeProviderConfig } from '../../common/constants/managed-free-providers';
+import { expandProviderNames } from '../../common/utils/provider-aliases';
 
 const MAX_KEYS_MANAGED_FREE_PROVIDER = 1;
 const MAX_LABEL_LENGTH = 50;
@@ -58,7 +60,7 @@ const SUBSCRIPTION_REFRESH_IDLE_TIMEOUT = '20s';
 interface ProviderRouteReference {
   agentId: string;
   agentName: string;
-  surface: 'tier' | 'specificity' | 'header';
+  surface: 'tier' | 'specificity' | 'header' | 'alias';
   name: string;
   model: string;
   position: string;
@@ -90,6 +92,9 @@ export class ProviderService {
     private readonly enabledProviderRepo: Repository<AgentEnabledProvider> | null = null,
     @Optional()
     private readonly codexAliasService: CodexAliasService | null = null,
+    @Optional()
+    @InjectRepository(ExposedModelRoute)
+    private readonly exposedModelRouteRepo: Repository<ExposedModelRoute> | null = null,
   ) {}
 
   /**
@@ -450,6 +455,68 @@ export class ProviderService {
     // the tenant owns, without changing model routes.
     await this.enableProviderForAllAgents(tenantId, record.id, manager);
     return { provider: record, isNew: true };
+  }
+
+  /**
+   * Replace the credential for an existing labelled account in place.
+   * Reauthentication is deliberately not an upsert: a stale or mistyped label
+   * must fail instead of creating "Key N" or silently reconnecting Default.
+   * Only the requesting harness is re-enabled; other harness-level disables
+   * remain untouched.
+   */
+  async reauthenticateProvider(
+    agentId: string,
+    tenantId: string,
+    provider: string,
+    authType: AuthType,
+    label: string,
+    apiKey: string,
+    region?: string,
+  ): Promise<{ provider: TenantProvider; isNew: false }> {
+    const trimmedLabel = this.normalizeLabel(label, authType);
+    if (!trimmedLabel) throw new BadRequestException('Key name must not be empty');
+    if (!apiKey) throw new BadRequestException('A credential is required to reauthenticate');
+
+    const providerNames = expandProviderNames([provider]);
+    const rows = await this.providerRepo.find({
+      where: { tenant_id: tenantId, auth_type: authType },
+    });
+    const target =
+      rows.find(
+        (row) =>
+          row.provider.toLowerCase() === provider.toLowerCase() &&
+          row.label.toLowerCase() === trimmedLabel.toLowerCase(),
+      ) ??
+      rows.find(
+        (row) =>
+          providerNames.has(row.provider.toLowerCase()) &&
+          row.label.toLowerCase() === trimmedLabel.toLowerCase(),
+      );
+    if (!target) {
+      throw new NotFoundException(
+        `Provider key "${trimmedLabel}" not found for ${provider}/${authType}`,
+      );
+    }
+
+    const resolvedRegion = await this.resolveProviderRegion(
+      target.provider,
+      authType,
+      region,
+      apiKey,
+      target,
+    );
+    target.api_key_encrypted = encrypt(apiKey, getEncryptionSecret());
+    target.key_prefix = apiKey.substring(0, 8);
+    target.region = resolvedRegion;
+    target.is_active = true;
+    target.updated_at = new Date().toISOString();
+    await this.providerRepo.save(target);
+
+    // Reauthentication restores access only for the harness that initiated
+    // the flow. The row id, label, priority, and every route reference remain
+    // unchanged.
+    await this.afterProviderChange(agentId, tenantId, target.id);
+    return { provider: target, isNew: false };
   }
 
   private async upsertProviderWithLabel(
@@ -999,6 +1066,24 @@ export class ProviderService {
       if (match) return match;
     }
 
+    if (this.exposedModelRouteRepo) {
+      const aliases = await this.exposedModelRouteRepo.find({ where: { tenant_id: tenantId } });
+      for (const alias of aliases) {
+        if (alias.source_kind !== 'direct') continue;
+        if (!agentIds.includes(alias.agent_id)) continue;
+        const match = this.findProviderRouteReferenceInRoutes(
+          alias.agent_id,
+          agentName(alias.agent_id),
+          'alias',
+          alias.model_id,
+          alias.route,
+          alias.fallback_routes,
+          providerRowsForAgent(alias.agent_id),
+        );
+        if (match) return match;
+      }
+    }
+
     return null;
   }
 
@@ -1057,12 +1142,12 @@ export class ProviderService {
   }
 
   private routeBelongsToProviderRow(route: ModelRoute, row: TenantProvider): boolean {
-    const providerName = row.provider.toLowerCase();
+    const providerNames = expandProviderNames([row.provider]);
     const rowLabel = (row.label ?? DEFAULT_LABEL).toLowerCase();
     const routeProvider = route.provider?.toLowerCase();
 
     if (routeProvider) {
-      if (routeProvider !== providerName) return false;
+      if (!providerNames.has(routeProvider)) return false;
       if (route.authType && route.authType !== row.auth_type) return false;
 
       const routeLabel = route.keyLabel?.toLowerCase();
@@ -1076,7 +1161,7 @@ export class ProviderService {
     if (row.priority !== 0) return false;
 
     const model = route.model.toLowerCase();
-    if (model.startsWith(`${providerName}/`)) return true;
+    if ([...providerNames].some((name) => model.startsWith(`${name}/`))) return true;
     if (
       Array.isArray(row.cached_models) &&
       row.cached_models.some((cached) => cached.id.toLowerCase() === model)
@@ -1084,15 +1169,15 @@ export class ProviderService {
       return true;
     }
     const pricing = this.pricingCache.getByModel(route.model)?.provider.toLowerCase();
-    return pricing === providerName;
+    return pricing ? providerNames.has(pricing) : false;
   }
 
   /**
    * Delete a single labeled key from a provider's chain. If it was the last
    * key for the (agent, provider, auth_type) tuple, falls through to the
-   * existing whole-provider teardown. Routes pinned to an active key block
-   * deletion; inactive keys are already disconnected, so deleting them clears
-   * stale label pins and removes the row.
+   * existing whole-provider teardown. Routes pinned to either an active or
+   * inactive key block deletion; an inactive row can still be the exact label
+   * required by a route and must not be cleared into an implicit Default route.
    */
   private async removeKeyByLabel(
     agentId: string | null,
@@ -1112,7 +1197,7 @@ export class ProviderService {
     if (!target) throw new NotFoundException('Provider key not found');
 
     if (!target.is_active) {
-      await this.relabelOverrides(tenantId, provider, target.auth_type, target.label, null);
+      await this.assertProviderRoutesNotUsed(tenantId, [target]);
       await this.agentMessageRepo(manager).delete({
         tenant_id: tenantId,
         tenant_provider_id: target.id,
@@ -1214,19 +1299,18 @@ export class ProviderService {
   }
 
   /**
-   * Update tier_assignments and specificity_assignments rows that reference a
-   * specific provider key by label. Pass `nextLabel = null` to clear the
-   * binding (used when the key is deleted — the assignment then resolves to
-   * the new primary key).
+   * Update every route surface that references a specific provider key by
+   * label. Provider rows are tenant-global, so renames must preserve the
+   * explicit pin across every owned harness.
    */
   private async relabelOverrides(
     tenantId: string,
     provider: string,
     authType: AuthType,
     previousLabel: string,
-    nextLabel: string | null,
+    nextLabel: string,
   ): Promise<void> {
-    const providerLower = provider.toLowerCase();
+    const providerNames = expandProviderNames([provider]);
     const previousLower = previousLabel.toLowerCase();
     // Scope a route match to the (provider, authType) tuple so renaming one
     // provider's "Default" key doesn't accidentally rewrite another provider's
@@ -1236,13 +1320,13 @@ export class ProviderService {
       if (!route) return false;
       if (!route.keyLabel) return false;
       if (route.keyLabel.toLowerCase() !== previousLower) return false;
-      if (route.provider.toLowerCase() !== providerLower) return false;
+      if (!providerNames.has(route.provider.toLowerCase())) return false;
       if (route.authType !== authType) return false;
       return true;
     };
     const replaceKeyLabel = (route: ModelRoute): ModelRoute => ({
       ...route,
-      keyLabel: nextLabel ?? null,
+      keyLabel: nextLabel,
     });
 
     // Keys are tenant-global: a rename must rewrite pinned routes on every
@@ -1325,6 +1409,32 @@ export class ProviderService {
       }
     }
     if (headerTiersToSave.length > 0) await this.headerTierRepo.save(headerTiersToSave);
+
+    if (this.exposedModelRouteRepo) {
+      const aliases = await this.exposedModelRouteRepo.find({ where: { tenant_id: tenantId } });
+      const aliasesToSave: ExposedModelRoute[] = [];
+      for (const alias of aliases) {
+        if (alias.source_kind !== 'direct') continue;
+        if (!ownedAgentIds.includes(alias.agent_id)) continue;
+        let mutated = false;
+        if (routeMatchesKey(alias.route)) {
+          alias.route = replaceKeyLabel(alias.route!);
+          mutated = true;
+        }
+        if (alias.fallback_routes && alias.fallback_routes.some(routeMatchesKey)) {
+          alias.fallback_routes = alias.fallback_routes.map((route) =>
+            routeMatchesKey(route) ? replaceKeyLabel(route) : route,
+          );
+          mutated = true;
+        }
+        if (mutated) {
+          alias.updated_at = now;
+          aliasesToSave.push(alias);
+          mutatedAgentIds.add(alias.agent_id);
+        }
+      }
+      if (aliasesToSave.length > 0) await this.exposedModelRouteRepo.save(aliasesToSave);
+    }
 
     // invalidateTenant() doesn't clear per-agent tier caches, so flush every
     // agent whose rows were rewritten or stale routes would keep serving.

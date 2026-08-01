@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import {
   DEFAULT_OUTPUT_MODALITY,
   DEFAULT_RESPONSE_MODE,
+  CREDENTIAL_SELECTION_MODES,
   SPECIFICITY_CATEGORIES,
   TIER_SLOTS,
   isModelRoute,
@@ -12,6 +13,7 @@ import {
   isResponseMode,
   setProviderParamValue,
   type AuthType,
+  type CredentialSelectionMode,
   type ModelRoute,
   type ProviderParamSpec,
   type RequestParamDefaults,
@@ -66,6 +68,7 @@ interface NormalizedAliasInput {
   source_key: string | null;
   route: ModelRoute | null;
   fallback_routes: ModelRoute[] | null;
+  credential_mode: CredentialSelectionMode | null;
   request_params: RequestParamDefaults | null;
   response_mode: ResponseMode;
 }
@@ -78,6 +81,7 @@ interface AliasInputShape {
   source_key?: unknown;
   route?: unknown;
   fallback_routes?: unknown;
+  credential_mode?: unknown;
   request_params?: unknown;
   response_mode?: unknown;
 }
@@ -151,6 +155,10 @@ export class ModelAliasService {
         patch.fallback_routes === undefined
           ? (existing.fallback_routes ?? undefined)
           : patch.fallback_routes,
+      credential_mode:
+        patch.credential_mode === undefined
+          ? (existing.credential_mode ?? undefined)
+          : patch.credential_mode,
       request_params:
         patch.request_params === undefined
           ? (existing.request_params ?? undefined)
@@ -266,25 +274,23 @@ export class ModelAliasService {
     }
     const responseMode = alias.response_mode ?? DEFAULT_RESPONSE_MODE;
     const fallbackRoutes = isModelRouteArray(alias.fallback_routes) ? alias.fallback_routes : null;
+    const credentialMode =
+      alias.credential_mode ?? (route.keyLabel ? 'pinned' : 'same_provider_failover');
     const routeChain = await this.availableDirectRouteChain(
       agentId,
       tenantId,
       route,
       fallbackRoutes,
+      credentialMode,
     );
     if (!routeChain.primaryRoute) {
       throw new NotFoundException(
         `Model alias "${alias.model_id}" has no available provider route.`,
       );
     }
-    const enrichedRoute = await this.enrichRouteKeyLabel(
-      agentId,
-      tenantId,
-      routeChain.primaryRoute,
-    );
     const effective = effectiveRoutesForResponseMode(
       responseMode,
-      enrichedRoute,
+      routeChain.primaryRoute,
       routeChain.fallbackRoutes,
     );
     return {
@@ -293,6 +299,7 @@ export class ModelAliasService {
       fallback_routes: effective.fallbackRoutes,
       output_modality: DEFAULT_OUTPUT_MODALITY,
       response_mode: responseMode,
+      credential_mode: credentialMode,
       confidence: 1,
       score: 0,
       reason: 'direct-model',
@@ -304,11 +311,14 @@ export class ModelAliasService {
     tenantId: string,
     route: ModelRoute,
     fallbackRoutes: ModelRoute[] | null,
+    credentialMode: CredentialSelectionMode = route.keyLabel ? 'pinned' : 'same_provider_failover',
   ): Promise<{ primaryRoute: ModelRoute | null; fallbackRoutes: ModelRoute[] | null }> {
     const candidates = [route, ...(fallbackRoutes ?? [])];
     const available: ModelRoute[] = [];
     for (const candidate of candidates) {
-      if (await this.providerKeyService.isRouteAvailable(tenantId, candidate, agentId)) {
+      if (
+        await this.providerKeyService.isRouteAvailable(tenantId, candidate, agentId, credentialMode)
+      ) {
         available.push(candidate);
       }
     }
@@ -378,18 +388,18 @@ export class ModelAliasService {
     route: ModelRoute,
     requestParams: RequestParamDefaults | null,
   ): Promise<{ resolved: ResolveResponse; requestParams: RequestParamDefaults | null }> {
-    const enrichedRoute = await this.enrichRouteKeyLabel(agentId, tenantId, route);
     return {
       requestParams,
       resolved: {
         tier: 'default',
-        route: enrichedRoute,
+        route,
         fallback_routes: null,
         output_modality: DEFAULT_OUTPUT_MODALITY,
         response_mode: DEFAULT_RESPONSE_MODE,
         confidence: 1,
         score: 0,
         reason: 'direct-model',
+        credential_mode: route.keyLabel ? 'pinned' : 'same_provider_failover',
       },
     };
   }
@@ -438,6 +448,7 @@ export class ModelAliasService {
     const requestParams = normalizeRequestParams(input.request_params);
     const responseMode = input.response_mode ?? DEFAULT_RESPONSE_MODE;
     if (!isResponseMode(responseMode)) throw new BadRequestException('Invalid response_mode');
+    const requestedCredentialMode = normalizeCredentialMode(input.credential_mode);
 
     if (sourceKind === 'direct' && !route) {
       throw new BadRequestException('Direct aliases require a route.');
@@ -448,6 +459,13 @@ export class ModelAliasService {
     if (sourceKind !== 'direct' && requestParams) {
       throw new BadRequestException('Only direct aliases can store request_params.');
     }
+    if (sourceKind !== 'direct' && requestedCredentialMode) {
+      throw new BadRequestException('Only direct aliases can store credential_mode.');
+    }
+    const credentialMode =
+      sourceKind === 'direct'
+        ? (requestedCredentialMode ?? (route?.keyLabel ? 'pinned' : 'same_provider_failover'))
+        : null;
     if (route) await this.validateRouteAvailable(agentId, tenantId, route);
     if (fallbackRoutes) {
       for (const fallbackRoute of fallbackRoutes) {
@@ -463,6 +481,7 @@ export class ModelAliasService {
       source_key: sourceKey,
       route,
       fallback_routes: fallbackRoutes,
+      credential_mode: credentialMode,
       request_params: requestParams,
       response_mode: responseMode,
     };
@@ -559,18 +578,11 @@ export class ModelAliasService {
   }
 
   private async enrichRouteKeyLabel(
-    agentId: string,
-    tenantId: string,
+    _agentId: string,
+    _tenantId: string,
     route: ModelRoute,
   ): Promise<ModelRoute> {
-    if (route.keyLabel) return route;
-    const label = await this.providerKeyService.getDefaultKeyLabel(
-      tenantId,
-      route.provider,
-      route.authType,
-      agentId,
-    );
-    return label ? { ...route, keyLabel: label } : route;
+    return route;
   }
 
   private async findOrThrow(agentId: string, id: string): Promise<ExposedModelRoute> {
@@ -620,6 +632,19 @@ function normalizeRoute(route: ModelRoute): ModelRoute {
 function normalizeRequestParams(value: unknown): RequestParamDefaults | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as RequestParamDefaults;
+}
+
+function normalizeCredentialMode(value: unknown): CredentialSelectionMode | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (
+    typeof value === 'string' &&
+    (CREDENTIAL_SELECTION_MODES as readonly string[]).includes(value)
+  ) {
+    return value as CredentialSelectionMode;
+  }
+  throw new BadRequestException(
+    `credential_mode must be one of: ${CREDENTIAL_SELECTION_MODES.join(', ')}`,
+  );
 }
 
 function authModeSlug(authType: AuthType): string {

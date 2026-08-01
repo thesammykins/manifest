@@ -51,6 +51,7 @@ const AnthropicOAuthDetailView: Component<Props> = (props) => {
   const [renamingId, setRenamingId] = createSignal<string | null>(null);
   const [renameValue, setRenameValue] = createSignal('');
   const [addingAccount, setAddingAccount] = createSignal(false);
+  const [reauthenticatingLabel, setReauthenticatingLabel] = createSignal<string | null>(null);
 
   const isMultiKey = () => (props.activeKeys?.() ?? []).length > 1;
   const showConnectFlow = () => !props.connected() || addingAccount();
@@ -77,11 +78,15 @@ const AnthropicOAuthDetailView: Component<Props> = (props) => {
     }
   });
 
-  const handleSignIn = async () => {
+  const handleSignIn = async (label?: string) => {
+    setReauthenticatingLabel(label ?? null);
+    if (label) setAddingAccount(true);
     props.setBusy(true);
     setError(null);
     try {
-      const { url, state: authState } = await startAnthropicOAuth(props.agentName);
+      const { url, state: authState } = label
+        ? await startAnthropicOAuth(props.agentName, label)
+        : await startAnthropicOAuth(props.agentName);
       setState(authState);
       const opened = window.open(url, 'manifest-anthropic-oauth', 'noopener,noreferrer');
       if (!opened) {
@@ -90,9 +95,11 @@ const AnthropicOAuthDetailView: Component<Props> = (props) => {
         );
         setState(null);
         if (props.connected()) setAddingAccount(false);
+        setReauthenticatingLabel(null);
       }
     } catch {
       if (props.connected()) setAddingAccount(false);
+      setReauthenticatingLabel(null);
       // error toast from fetchMutate
     } finally {
       props.setBusy(false);
@@ -122,10 +129,16 @@ const AnthropicOAuthDetailView: Component<Props> = (props) => {
     try {
       const authState = state() ?? pastedState;
       await submitAnthropicOAuth(props.agentName, raw, authState);
-      toast.success(`${props.provDef.name} subscription connected`);
+      const wasReauth = reauthenticatingLabel();
+      toast.success(
+        wasReauth
+          ? `${props.provDef.name} account “${wasReauth}” reauthenticated`
+          : `${props.provDef.name} subscription connected`,
+      );
       setAddingAccount(false);
       setInput('');
       setState(null);
+      setReauthenticatingLabel(null);
       props.onUpdate();
     } catch (err) {
       setError(
@@ -143,6 +156,7 @@ const AnthropicOAuthDetailView: Component<Props> = (props) => {
     setInput('');
     setError(null);
     setState(null);
+    setReauthenticatingLabel(null);
   };
 
   const handleDisconnect = async () => {
@@ -221,7 +235,7 @@ const AnthropicOAuthDetailView: Component<Props> = (props) => {
           <button
             class="btn btn--primary anthropic-detail__btn"
             disabled={props.busy()}
-            onClick={handleSignIn}
+            onClick={() => handleSignIn()}
           >
             <Show when={!props.busy()} fallback={<span class="spinner" />}>
               Sign in with Claude
@@ -305,6 +319,14 @@ const AnthropicOAuthDetailView: Component<Props> = (props) => {
                             class="btn btn--outline btn--sm"
                             style="flex-shrink: 0;"
                             disabled={props.busy()}
+                            onClick={() => handleSignIn(k.label)}
+                          >
+                            Reauthenticate
+                          </button>
+                          <button
+                            class="btn btn--outline btn--sm"
+                            style="flex-shrink: 0;"
+                            disabled={props.busy()}
                             onClick={() => startRename(k)}
                           >
                             Rename
@@ -384,6 +406,13 @@ const AnthropicOAuthDetailView: Component<Props> = (props) => {
               Connected via {props.provDef.subscriptionLabel ?? 'subscription'}
             </span>
           </div>
+          <button
+            class="btn btn--outline provider-detail__action"
+            disabled={props.busy()}
+            onClick={() => handleSignIn(props.activeKeys?.()[0]?.label)}
+          >
+            Reauthenticate
+          </button>
           <button
             class="btn btn--outline provider-detail__action provider-detail__disconnect"
             disabled={props.busy()}

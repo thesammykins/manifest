@@ -1,5 +1,6 @@
 import type {
   AuthType,
+  CredentialSelectionMode,
   ModelCapability,
   ModelModality,
   ModelRoute,
@@ -17,6 +18,7 @@ export type {
   ResponseMode,
   OutputModality,
   RequestParamDefaults,
+  CredentialSelectionMode,
 };
 
 export interface RoutingProvider {
@@ -155,12 +157,12 @@ export function copilotDeviceCode(agentName: string) {
   });
 }
 
-export async function copilotPollToken(agentName: string, deviceCode: string) {
+export async function copilotPollToken(agentName: string, deviceCode: string, label?: string) {
   const res = await fetch(`/api/v1${routingPath(agentName, 'copilot/poll-token')}`, {
     credentials: 'include',
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deviceCode }),
+    body: JSON.stringify({ deviceCode, ...(label ? { label } : {}) }),
   });
   if (!res.ok) throw new Error(`Poll failed: ${res.status}`);
   return res.json() as Promise<{ status: CopilotPollStatus }>;
@@ -342,6 +344,7 @@ export interface ModelAlias {
   source_key: string | null;
   route: ModelRoute | null;
   fallback_routes: ModelRoute[] | null;
+  credential_mode: CredentialSelectionMode | null;
   request_params: RequestParamDefaults | null;
   response_mode: ResponseMode;
   created_at: string;
@@ -356,6 +359,7 @@ export interface CreateModelAliasInput {
   source_key?: string | null;
   route?: ModelRoute | null;
   fallback_routes?: ModelRoute[] | null;
+  credential_mode?: CredentialSelectionMode | null;
   request_params?: RequestParamDefaults | null;
   response_mode?: ResponseMode;
 }
@@ -401,6 +405,76 @@ export function deleteModelAlias(agentName: string, id: string) {
     routingPath(agentName, `model-aliases/${encodeURIComponent(id)}`),
     { method: 'DELETE' },
   );
+}
+
+export interface ProviderMigrationEndpoint {
+  provider: string;
+  authType: AuthType;
+  label: string;
+}
+
+export interface ProviderMigrationRequest {
+  source: ProviderMigrationEndpoint;
+  target?: ProviderMigrationEndpoint;
+  mode: 'move_routes' | 'enable_alias_failover';
+  aliasIds?: string[];
+}
+
+export interface ProviderMigrationPlan {
+  mode: ProviderMigrationRequest['mode'];
+  source: ProviderMigrationEndpoint;
+  target: ProviderMigrationEndpoint | null;
+  target_provider_id: string | null;
+  target_label: string | null;
+  routes: Array<{
+    agent_id: string;
+    agent_name: string;
+    surface: 'tier' | 'specificity' | 'header' | 'alias';
+    assignment_id?: string;
+    alias_id?: string;
+    name: string;
+    position: string;
+    model: string;
+    provider: string;
+    auth_type: AuthType;
+    key_label: string;
+  }>;
+  aliases: Array<{
+    id: string;
+    agent_id: string;
+    agent_name: string;
+    model_id: string;
+    positions: string[];
+    credential_mode: CredentialSelectionMode | null;
+  }>;
+  affected_harnesses: Array<{
+    agent_id: string;
+    agent_name: string;
+    route_count: number;
+    alias_count: number;
+  }>;
+  counts: {
+    harnesses: number;
+    routes: number;
+    aliases: number;
+    newly_enabled_target_connections: number;
+  };
+}
+
+export function previewProviderMigration(agentName: string, request: ProviderMigrationRequest) {
+  return fetchMutate<ProviderMigrationPlan>(routingPath(agentName, 'provider-migrations/preview'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+}
+
+export function applyProviderMigration(agentName: string, request: ProviderMigrationRequest) {
+  return fetchMutate<ProviderMigrationPlan>(routingPath(agentName, 'provider-migrations'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
 }
 
 /* -- Routing: Available Models -- */
@@ -499,7 +573,12 @@ export interface EnabledProviders {
 }
 
 export interface AgentProviderDisableImpact {
-  affected_tiers: Array<{ tier: string; model: string; position: string }>;
+  affected_tiers: Array<{
+    tier: string;
+    model: string;
+    position: string;
+    alias_id?: string;
+  }>;
 }
 
 function enabledProvidersPath(agentName: string, suffix = ''): string {

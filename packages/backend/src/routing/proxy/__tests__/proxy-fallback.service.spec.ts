@@ -418,6 +418,70 @@ describe('ProxyFallbackService', () => {
       expect(providerClient.forward).toHaveBeenCalledTimes(1);
     });
 
+    it('fails over to the next same-provider subscription account after an upstream 401', async () => {
+      const defaultKey = {
+        apiKey: 'default-token',
+        id: 'default-id',
+        region: null,
+        label: 'Default',
+        priority: 0,
+      };
+      const backupKey = {
+        apiKey: 'backup-token',
+        id: 'backup-id',
+        region: 'us',
+        label: 'Backup',
+        priority: 1,
+      };
+      providerKeyService.getProviderKeyCandidates = jest
+        .fn()
+        .mockImplementation(async (_tenantId, _provider, _authType, label) => [
+          label === 'Backup' ? backupKey : defaultKey,
+        ]);
+      providerClient.forward
+        .mockResolvedValueOnce({
+          response: new Response('unauthorized', { status: 401 }),
+          isGoogle: false,
+          isAnthropic: false,
+          isChatGpt: true,
+        })
+        .mockResolvedValueOnce({
+          response: new Response('{"ok":true}', { status: 200 }),
+          isGoogle: false,
+          isAnthropic: false,
+          isChatGpt: true,
+        });
+
+      const result = await service.tryForwardToProvider({
+        provider: 'openai',
+        apiKey: defaultKey.apiKey,
+        rawApiKey: defaultKey.apiKey,
+        providerKeyLabel: 'Default',
+        credentialAlternates: ['Backup'],
+        credentialMode: 'same_provider_failover',
+        tenantProviderId: defaultKey.id,
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        model: 'gpt-5.3-codex',
+        body,
+        stream: false,
+        sessionKey: 'sess-1',
+        authType: 'subscription',
+      });
+
+      expect(result.response.status).toBe(200);
+      expect(providerClient.forward).toHaveBeenCalledTimes(2);
+      expect(providerClient.forward.mock.calls[1][0]).toEqual(
+        expect.objectContaining({ apiKey: 'backup-token' }),
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          tenantProviderId: 'backup-id',
+          providerKeyLabel: 'Backup',
+        }),
+      );
+    });
+
     it('keeps the original rejected-token response readable when refresh cannot recover', async () => {
       const errorBody = 'unauthorized';
       providerClient.forward.mockResolvedValue({

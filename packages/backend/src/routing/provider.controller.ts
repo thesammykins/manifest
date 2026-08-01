@@ -5,6 +5,8 @@ import {
   Delete,
   Get,
   Inject,
+  InternalServerErrorException,
+  Optional,
   Param,
   Patch,
   Post,
@@ -28,10 +30,12 @@ import {
   RemoveProviderQueryDto,
   RenameProviderKeyDto,
   ReorderProviderKeysDto,
+  ProviderMigrationDto,
 } from './dto/routing.dto';
 import { QWEN_REGION_VALIDATION_MESSAGE, isQwenRegion } from './qwen-region';
 import { getSubscriptionEndpointRegionConfig } from './subscription-region';
 import { isBedrockProvider, isBedrockRegion } from './bedrock-region';
+import { ProviderMigrationService } from './routing-core/provider-migration.service';
 import {
   CLOUD_LOCAL_PROVIDER_MESSAGE,
   isProviderAvailableForDeployment,
@@ -47,7 +51,35 @@ export class ProviderController {
     private readonly tierService: TierService,
     private readonly pricingSync: PricingSyncService,
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+    @Optional() private readonly providerMigrationService?: ProviderMigrationService,
   ) {}
+
+  @Post(':agentName/provider-migrations/preview')
+  async previewProviderMigration(
+    @TenantCtx() ctx: TenantContext,
+    @Param() params: AgentNameParamDto,
+    @Body() body: ProviderMigrationDto,
+  ) {
+    const agent = await this.resolveAgentService.resolve(ctx.tenantId, params.agentName);
+    return this.getProviderMigrationService().preview(agent.tenant_id, body);
+  }
+
+  @Post(':agentName/provider-migrations')
+  async applyProviderMigration(
+    @TenantCtx() ctx: TenantContext,
+    @Param() params: AgentNameParamDto,
+    @Body() body: ProviderMigrationDto,
+  ) {
+    const agent = await this.resolveAgentService.resolve(ctx.tenantId, params.agentName);
+    return this.getProviderMigrationService().apply(agent.tenant_id, body);
+  }
+
+  private getProviderMigrationService(): ProviderMigrationService {
+    if (!this.providerMigrationService) {
+      throw new InternalServerErrorException('Provider migration service is unavailable');
+    }
+    return this.providerMigrationService;
+  }
 
   @Get(':agentName/status')
   async getStatus(@TenantCtx() ctx: TenantContext, @Param() params: AgentNameParamDto) {

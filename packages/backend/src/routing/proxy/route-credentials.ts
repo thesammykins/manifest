@@ -9,7 +9,7 @@
  * Keep new credential failure kinds here — callers should not re-implement
  * selectProviderKey → resolveApiKey or invent parallel error text.
  */
-import type { AuthType } from 'manifest-shared';
+import type { AuthType, CredentialSelectionMode } from 'manifest-shared';
 import {
   ProviderKeyService,
   SYNTHETIC_OLLAMA_PROVIDER_ID,
@@ -49,8 +49,10 @@ export type ResolvedRouteCredentials =
       resourceUrl?: string;
       providerRegion?: string | null;
       tenantProviderId: string | null;
-      /** Effective key label after unpinned subscription resolution. */
+      /** Actual account label that produced this credential. */
       keyLabel?: string;
+      /** Same-provider subscription labels to try after an upstream 401. */
+      alternateKeyLabels?: string[];
     }
   | {
       ok: false;
@@ -67,7 +69,8 @@ export interface CredentialFailurePresentation {
 }
 
 export interface RouteCredentialDeps {
-  providerKeyService: Pick<ProviderKeyService, 'selectProviderKey' | 'getProviderApiKey'>;
+  providerKeyService: Pick<ProviderKeyService, 'selectProviderKey' | 'getProviderApiKey'> &
+    Partial<Pick<ProviderKeyService, 'getProviderKeyCandidates'>>;
   oauth: OAuthServiceSet;
 }
 
@@ -197,81 +200,109 @@ export async function resolveRouteCredentials(
     provider: string;
     authType?: AuthType;
     providerKeyLabel?: string;
+    credentialMode?: CredentialSelectionMode;
   },
 ): Promise<ResolvedRouteCredentials> {
   const { providerKeyService, oauth } = deps;
   const { agentId, tenantId, provider, authType } = args;
-  let providerKeyLabel = args.providerKeyLabel;
+  const credentialMode: CredentialSelectionMode =
+    args.credentialMode ??
+    (args.providerKeyLabel || authType !== 'subscription' ? 'pinned' : 'same_provider_failover');
 
-  // Single key selection per hop: apiKey, tenant_provider_id, region, and
-  // label all come from this one row so they can never diverge.
-  const key = await providerKeyService.selectProviderKey(
-    tenantId,
-    provider,
-    authType,
-    providerKeyLabel,
-    agentId,
-  );
-  if (!key || key.apiKey === null) {
-    return { ok: false, reason: 'no_provider_key', tenantProviderId: null };
-  }
-
-  const apiKey = key.apiKey;
-  // NULL for synthetic Ollama — no persisted row to stamp (FK).
-  const tenantProviderId = key.id === SYNTHETIC_OLLAMA_PROVIDER_ID ? null : key.id;
-
-  // Unpinned subscription: pin to the selected row so OAuth refresh updates
-  // the same connection getProviderApiKey / unwrap used.
-  if (!providerKeyLabel && authType === 'subscription') {
-    providerKeyLabel = key.label;
-  }
-
-  const unwrapped = await resolveApiKey(
-    provider,
-    apiKey,
-    authType,
-    agentId,
-    tenantId,
-    oauth.openaiOauth,
-    oauth.minimaxOauth,
-    oauth.anthropicOauth,
-    oauth.geminiOauth,
-    oauth.kiroOauth,
-    oauth.xaiOauth,
-    providerKeyLabel,
-  );
-
-  // resolveApiKey only returns null when a subscription OAuth blob exists
-  // but cannot be unwrapped / refreshed.
-  if (unwrapped.apiKey === null) {
-    return {
-      ok: false,
-      reason: 'subscription_credentials_unusable',
-      tenantProviderId,
-    };
-  }
-
-  let rawApiKey = apiKey;
-  if (authType === 'subscription' && isRefreshableOAuthCredential(apiKey)) {
-    // Deliberate re-read: resolveApiKey may have refreshed + persisted a
-    // rotated OAuth blob (which also invalidates the key cache).
-    rawApiKey =
-      (await providerKeyService.getProviderApiKey(
+  const candidates = providerKeyService.getProviderKeyCandidates
+    ? await providerKeyService.getProviderKeyCandidates(
         tenantId,
         provider,
         authType,
-        providerKeyLabel,
+        args.providerKeyLabel,
         agentId,
-      )) ?? apiKey;
+        credentialMode,
+      )
+    : await (async () => {
+        const selected = await providerKeyService.selectProviderKey(
+          tenantId,
+          provider,
+          authType,
+          args.providerKeyLabel,
+          agentId,
+        );
+        return selected ? [selected] : [];
+      })();
+
+  if (candidates.length === 0) {
+    return { ok: false, reason: 'no_provider_key', tenantProviderId: null };
+  }
+
+  let firstProviderId: string | null = null;
+  let sawUnusableSubscriptionCredential = false;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const key = candidates[index];
+    const tenantProviderId = key.id === SYNTHETIC_OLLAMA_PROVIDER_ID ? null : key.id;
+    firstProviderId ??= tenantProviderId;
+    if (key.apiKey === null) continue;
+
+    // An unpinned subscription is temporarily bound to the candidate being
+    // attempted. This keeps refresh and the post-refresh raw-token reread on
+    // the same tenant_providers row without mutating the route itself.
+    const effectiveLabel =
+      args.providerKeyLabel ?? (authType === 'subscription' ? key.label : undefined);
+    const unwrapped = await resolveApiKey(
+      provider,
+      key.apiKey,
+      authType,
+      agentId,
+      tenantId,
+      oauth.openaiOauth,
+      oauth.minimaxOauth,
+      oauth.anthropicOauth,
+      oauth.geminiOauth,
+      oauth.kiroOauth,
+      oauth.xaiOauth,
+      effectiveLabel,
+    );
+
+    if (unwrapped.apiKey === null) {
+      sawUnusableSubscriptionCredential = authType === 'subscription';
+      continue;
+    }
+
+    let rawApiKey = key.apiKey;
+    if (authType === 'subscription' && isRefreshableOAuthCredential(key.apiKey)) {
+      // Deliberate re-read: resolveApiKey may have refreshed + persisted a
+      // rotated OAuth blob (which also invalidates the key cache).
+      rawApiKey =
+        (await providerKeyService.getProviderApiKey(
+          tenantId,
+          provider,
+          authType,
+          effectiveLabel,
+          agentId,
+        )) ?? key.apiKey;
+    }
+
+    return {
+      ok: true,
+      apiKey: unwrapped.apiKey,
+      rawApiKey,
+      resourceUrl: unwrapped.resourceUrl,
+      providerRegion: key.region,
+      tenantProviderId,
+      keyLabel: effectiveLabel,
+      ...(credentialMode === 'same_provider_failover' &&
+      authType === 'subscription' &&
+      candidates.length > index + 1
+        ? {
+            alternateKeyLabels: candidates.slice(index + 1).map((candidate) => candidate.label),
+          }
+        : {}),
+    };
   }
 
   return {
-    ok: true,
-    apiKey: unwrapped.apiKey,
-    rawApiKey,
-    resourceUrl: unwrapped.resourceUrl,
-    providerRegion: key.region,
-    tenantProviderId,
-    keyLabel: providerKeyLabel,
+    ok: false,
+    reason: sawUnusableSubscriptionCredential
+      ? 'subscription_credentials_unusable'
+      : 'no_provider_key',
+    tenantProviderId: firstProviderId,
   };
 }

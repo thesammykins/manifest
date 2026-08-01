@@ -30,17 +30,25 @@ export class CopilotController {
     const agent = await this.resolveAgentService.resolve(ctx.tenantId, params.agentName);
     const result = await this.copilotAuth.pollForToken(body.deviceCode);
     if (result.status === 'complete' && result.token) {
-      const label = await this.providerService.nextOAuthLabel(agent.tenant_id, 'copilot');
-      const { provider: record } = await this.providerService.upsertProvider(
-        agent.id,
-        agent.tenant_id,
-        'copilot',
-        result.token,
-        'subscription',
-        undefined,
-        label,
-        ctx.userId,
-      );
+      const { provider: record } = body.label
+        ? await this.providerService.reauthenticateProvider(
+            agent.id,
+            agent.tenant_id,
+            'copilot',
+            'subscription',
+            body.label,
+            result.token,
+          )
+        : await this.providerService.upsertProvider(
+            agent.id,
+            agent.tenant_id,
+            'copilot',
+            result.token,
+            'subscription',
+            undefined,
+            await this.providerService.nextOAuthLabel(agent.tenant_id, 'copilot'),
+            ctx.userId,
+          );
       try {
         await this.discoveryService.discoverModels(record);
       } catch {

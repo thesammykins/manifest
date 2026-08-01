@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import type { AuthType, ModelRoute, RequestParamDefaults } from 'manifest-shared';
+import type {
+  AuthType,
+  CredentialSelectionMode,
+  ModelRoute,
+  RequestParamDefaults,
+} from 'manifest-shared';
 import { applyRequestParamDefaults } from 'manifest-shared';
 import { AgentModelParamsService } from '../routing-core/agent-model-params.service';
 import { ProviderParamSpecService } from '../routing-core/provider-param-spec.service';
@@ -35,6 +40,9 @@ interface ForwardProviderOptions {
   authType?: string;
   rawApiKey?: string;
   providerKeyLabel?: string;
+  /** Remaining same-provider subscription accounts after this attempt. */
+  credentialAlternates?: string[];
+  credentialMode?: CredentialSelectionMode;
   agentId?: string;
   tenantId?: string;
   resourceUrl?: string;
@@ -199,6 +207,7 @@ export class ProxyFallbackService {
     /** Dashboard URL embedded in mid-chain M100/M102 credential failure bodies. */
     credentialDashboardUrl?: string,
     providerCacheKey?: string,
+    credentialMode?: CredentialSelectionMode,
   ): Promise<{
     success: {
       forward: ForwardResult;
@@ -274,6 +283,7 @@ export class ProxyFallbackService {
         provider,
         authType,
         providerKeyLabel,
+        credentialMode,
       });
       if (!credentials.ok) {
         this.logger.debug(
@@ -325,10 +335,13 @@ export class ProxyFallbackService {
         thinkingLookup,
         paramMergeContext,
         tenantProviderId,
+        credentialAlternates: credentials.alternateKeyLabels,
+        credentialMode,
         startProviderAttempt,
       });
 
       if (forward.response.ok) {
+        const actualTenantProviderId = forward.tenantProviderId ?? tenantProviderId;
         return {
           success: {
             forward,
@@ -339,10 +352,10 @@ export class ProxyFallbackService {
             // Label of the connection row that served the attempt — stamped
             // alongside its tenant_provider_id so the pair always matches.
             // Synthetic rows (Ollama) keep the pinned label, if any.
-            keyLabel: tenantProviderId
-              ? (credentials.keyLabel ?? providerKeyLabel)
+            keyLabel: actualTenantProviderId
+              ? (forward.providerKeyLabel ?? credentials.keyLabel ?? providerKeyLabel)
               : providerKeyLabel,
-            tenantProviderId,
+            tenantProviderId: actualTenantProviderId,
           },
           failures,
         };
@@ -357,7 +370,7 @@ export class ProxyFallbackService {
         status: forward.response.status,
         errorBody,
         authType,
-        tenantProviderId,
+        tenantProviderId: forward.tenantProviderId ?? tenantProviderId,
         attempt: forward.attempt,
         providerCallStarted: forward.providerCallStarted,
       });
@@ -394,9 +407,17 @@ export class ProxyFallbackService {
 
     try {
       const forward = await this.forwardToProvider(opts);
-      const result = await this.retryOAuthSubscriptionAfterRejectedToken(opts, forward);
+      const refreshedResult = await this.retryOAuthSubscriptionAfterRejectedToken(opts, forward);
+      const result = await this.retrySameProviderCredentialAfterRejectedToken(
+        opts,
+        refreshedResult,
+      );
       this.recordRateLimitCooldown(opts, result.response);
-      return result;
+      return {
+        ...result,
+        tenantProviderId: result.tenantProviderId ?? opts.tenantProviderId,
+        providerKeyLabel: result.providerKeyLabel ?? opts.providerKeyLabel,
+      };
     } catch (error) {
       if (opts.signal?.aborted) throw error;
       if (!isTransportError(error)) throw error;
@@ -424,7 +445,13 @@ export class ProxyFallbackService {
     healedBody: Record<string, unknown>,
     opts?: Pick<
       ForwardProviderOptions,
-      'provider' | 'model' | 'authType' | 'tenantProviderId' | 'startProviderAttempt' | 'signal'
+      | 'provider'
+      | 'model'
+      | 'authType'
+      | 'tenantProviderId'
+      | 'providerKeyLabel'
+      | 'startProviderAttempt'
+      | 'signal'
     >,
   ): Promise<ForwardResult> {
     if (!forward.retryWireBody) {
@@ -440,7 +467,13 @@ export class ProxyFallbackService {
     try {
       const retried = await forward.retryWireBody(healedBody, attempt);
       if (attempt) attempt.completedAtMs = Date.now();
-      return { ...retried, attempt, providerCallStarted: true };
+      return {
+        ...retried,
+        tenantProviderId: retried.tenantProviderId ?? opts.tenantProviderId,
+        providerKeyLabel: retried.providerKeyLabel ?? opts.providerKeyLabel,
+        attempt,
+        providerCallStarted: true,
+      };
     } catch (error) {
       if (attempt) attempt.completedAtMs = Date.now();
       if (attempt && error instanceof Error) {
@@ -455,6 +488,8 @@ export class ProxyFallbackService {
       );
       return {
         response: failureResponse,
+        tenantProviderId: opts.tenantProviderId,
+        providerKeyLabel: opts.providerKeyLabel,
         attempt,
         providerCallStarted: true,
         isGoogle: false,
@@ -620,6 +655,66 @@ export class ProxyFallbackService {
         isChatGpt: false,
       };
     }
+  }
+
+  /**
+   * If a subscription token remains rejected after its own refresh attempt,
+   * walk the remaining same-provider accounts. This path is only populated for
+   * unpinned/failover routes; an explicit account pin has no alternates.
+   */
+  private async retrySameProviderCredentialAfterRejectedToken(
+    opts: ForwardProviderOptions,
+    forward: ForwardResult,
+  ): Promise<ForwardResult> {
+    if (
+      opts.authType !== 'subscription' ||
+      forward.response.status !== 401 ||
+      !opts.agentId ||
+      !opts.tenantId ||
+      !opts.credentialAlternates?.length
+    ) {
+      return forward;
+    }
+
+    const remaining = [...opts.credentialAlternates];
+    for (let index = 0; index < remaining.length; index += 1) {
+      const label = remaining[index];
+      const credentials = await resolveRouteCredentials(this.routeCredentialDeps(), {
+        agentId: opts.agentId,
+        tenantId: opts.tenantId,
+        provider: opts.provider,
+        authType: 'subscription',
+        providerKeyLabel: label,
+        credentialMode: 'pinned',
+      });
+      if (!credentials.ok) continue;
+
+      const rejectedBody = await forward.response
+        .clone()
+        .text()
+        .catch(() => 'Subscription credential rejected');
+      await forward.attempt?.finishRecording?.(recordingResponseFromText(rejectedBody));
+      await forward.attempt?.completeFailure?.({
+        status: forward.response.status,
+        errorBody: rejectedBody,
+        superseded: true,
+      });
+
+      this.logger.log(
+        `Subscription credential rejected upstream; trying provider=${opts.provider} label=${label}`,
+      );
+      return this.tryForwardToProvider({
+        ...opts,
+        apiKey: credentials.apiKey,
+        rawApiKey: credentials.rawApiKey,
+        resourceUrl: credentials.resourceUrl ?? opts.resourceUrl,
+        providerRegion: credentials.providerRegion,
+        providerKeyLabel: credentials.keyLabel ?? label,
+        tenantProviderId: credentials.tenantProviderId,
+        credentialAlternates: remaining.slice(index + 1),
+      });
+    }
+    return forward;
   }
 
   private async forwardToProvider(opts: ForwardProviderOptions): Promise<ForwardResult> {

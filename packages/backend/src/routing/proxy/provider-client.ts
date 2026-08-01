@@ -43,6 +43,9 @@ import { MANAGED_FREE_PROVIDER_BY_ID } from '../../common/constants/managed-free
 
 export interface ForwardResult {
   response: Response;
+  /** Credential identity that actually produced this provider response. */
+  tenantProviderId?: string | null;
+  providerKeyLabel?: string;
   /** Exact JSON body sent to the resolved provider transport. */
   wireRequestBody?: Record<string, unknown>;
   /** Exact URL used by the resolved provider transport. */

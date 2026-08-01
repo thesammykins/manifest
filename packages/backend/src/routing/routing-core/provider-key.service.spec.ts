@@ -55,12 +55,12 @@ describe('ProviderKeyService — selection projections', () => {
       expect(sel?.id).toBe('up-work');
     });
 
-    it('falls back to the first key when the label does not match', async () => {
+    it('returns null when an explicit label does not match', async () => {
       jest
         .spyOn(svc, 'getProviderKeys')
         .mockResolvedValue([key({ id: 'up-default', label: 'Default' })]);
       const sel = await svc.selectProviderKey('u', 'openai', 'api_key', 'nonexistent');
-      expect(sel?.id).toBe('up-default');
+      expect(sel).toBeNull();
     });
 
     it('returns the first key when no label is given', async () => {
@@ -69,6 +69,44 @@ describe('ProviderKeyService — selection projections', () => {
         .mockResolvedValue([key({ id: 'up-default' }), key({ id: 'up-2', label: 'Two' })]);
       const sel = await svc.selectProviderKey('u', 'openai', 'api_key');
       expect(sel?.id).toBe('up-default');
+    });
+  });
+
+  describe('getProviderKeyCandidates', () => {
+    it('orders the preferred failover account before the remaining accounts', async () => {
+      jest
+        .spyOn(svc, 'getProviderKeys')
+        .mockResolvedValue([
+          key({ id: 'up-default', label: 'Default', priority: 0 }),
+          key({ id: 'up-backup', label: 'Backup', priority: 1 }),
+        ]);
+
+      await expect(
+        svc.getProviderKeyCandidates(
+          'u',
+          'openai',
+          'subscription',
+          'Backup',
+          undefined,
+          'same_provider_failover',
+        ),
+      ).resolves.toEqual([
+        expect.objectContaining({ id: 'up-backup' }),
+        expect.objectContaining({ id: 'up-default' }),
+      ]);
+    });
+
+    it('never substitutes another account for a pinned label', async () => {
+      jest
+        .spyOn(svc, 'getProviderKeys')
+        .mockResolvedValue([
+          key({ id: 'up-default', label: 'Default' }),
+          key({ id: 'up-backup', label: 'Backup' }),
+        ]);
+
+      await expect(
+        svc.getProviderKeyCandidates('u', 'openai', 'subscription', 'Missing', undefined, 'pinned'),
+      ).resolves.toEqual([]);
     });
   });
 

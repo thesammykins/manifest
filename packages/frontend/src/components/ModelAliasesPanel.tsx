@@ -11,6 +11,7 @@ import { setProviderParamValue, type ProviderParamSpec } from 'manifest-shared';
 import type {
   AvailableModel,
   AuthType,
+  CredentialSelectionMode,
   CreateModelAliasInput,
   ModelAlias,
   ModelRoute,
@@ -237,6 +238,9 @@ const ModelAliasRow: Component<{
   const [reasoningEffortDraft, setReasoningEffortDraft] = createSignal(
     reasoningEffort(props.alias.request_params) ?? '',
   );
+  const [credentialModeDraft, setCredentialModeDraft] = createSignal<CredentialSelectionMode>(
+    directCredentialMode(props.alias),
+  );
   const [saving, setSaving] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
   const [aliasSpecs] = createResource(
@@ -252,12 +256,15 @@ const ModelAliasRow: Component<{
     setModelId(props.alias.model_id);
     setDisplayName(props.alias.display_name ?? '');
     setReasoningEffortDraft(reasoningEffort(props.alias.request_params) ?? '');
+    setCredentialModeDraft(directCredentialMode(props.alias));
   });
 
   const changed = () =>
     modelId().trim() !== props.alias.model_id ||
     (displayName().trim() || null) !== props.alias.display_name ||
-    reasoningEffortDraft() !== (reasoningEffort(props.alias.request_params) ?? '');
+    reasoningEffortDraft() !== (reasoningEffort(props.alias.request_params) ?? '') ||
+    (props.alias.source_kind === 'direct' &&
+      credentialModeDraft() !== directCredentialMode(props.alias));
 
   const save = async () => {
     if (!changed()) return;
@@ -273,6 +280,7 @@ const ModelAliasRow: Component<{
                 reasoningEffortDraft(),
                 aliasSpecs() ?? [],
               ),
+              credential_mode: credentialModeDraft(),
             }
           : {}),
       });
@@ -313,6 +321,17 @@ const ModelAliasRow: Component<{
             <For each={reasoningEfforts()}>
               {(effort) => <option value={effort}>{effort || 'Default'}</option>}
             </For>
+          </select>
+          <select
+            class="model-alias-row__reasoning"
+            aria-label="Credential selection mode"
+            value={credentialModeDraft()}
+            onInput={(e) =>
+              setCredentialModeDraft(e.currentTarget.value as CredentialSelectionMode)
+            }
+          >
+            <option value="pinned">Pinned account</option>
+            <option value="same_provider_failover">Same-provider failover</option>
           </select>
         </Show>
         <span class="model-alias-row__meta">{describeAlias(props.alias)}</span>
@@ -369,14 +388,20 @@ function describeAlias(alias: ModelAlias): string {
   if (alias.source_kind === 'direct' && alias.route) {
     const route = alias.route;
     const key = route.keyLabel ? ` · ${route.keyLabel}` : '';
+    const mode = directCredentialMode(alias) === 'same_provider_failover' ? ' · failover' : '';
     const effort = reasoningEffort(alias.request_params);
     return `${displayProvider(route.provider)} ${authLabel(route.authType)}${key} · ${
       route.model
-    }${effort ? ` · ${effort}` : ''}`;
+    }${mode}${effort ? ` · ${effort}` : ''}`;
   }
   if (alias.source_kind === 'tier') return `Tier · ${alias.source_key}`;
   if (alias.source_kind === 'specificity') return `Task · ${alias.source_key}`;
   return `Header tier · ${alias.source_key}`;
+}
+
+function directCredentialMode(alias: ModelAlias): CredentialSelectionMode {
+  if (alias.credential_mode) return alias.credential_mode;
+  return alias.route?.keyLabel ? 'pinned' : 'same_provider_failover';
 }
 
 function reasoningEffort(params: RequestParamDefaults | null): string | null {

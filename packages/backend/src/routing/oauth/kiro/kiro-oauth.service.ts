@@ -37,6 +37,7 @@ interface PendingKiroOAuth {
   tenantId: string;
   /** Acting user, audit only (tenant_providers.created_by_user_id). */
   createdByUserId: string | null;
+  label?: string;
   region: string;
   expiresAt: number;
   pollIntervalMs: number;
@@ -133,6 +134,7 @@ export class KiroOauthService {
       agentId,
       tenantId,
       createdByUserId: createdByUserId ?? null,
+      ...(options.label ? { label: options.label } : {}),
       region,
       expiresAt,
       pollIntervalMs,
@@ -212,17 +214,26 @@ export class KiroOauthService {
       cs: pending.clientSecret,
       region: pending.region,
     };
-    const label = await this.providerService.nextOAuthLabel(pending.tenantId, 'kiro');
-    const { provider: savedProvider } = await this.providerService.upsertProvider(
-      pending.agentId,
-      pending.tenantId,
-      'kiro',
-      serializeKiroOAuthTokenBlob(blob),
-      'subscription',
-      undefined,
-      label,
-      pending.createdByUserId,
-    );
+    const { provider: savedProvider } = pending.label
+      ? await this.providerService.reauthenticateProvider(
+          pending.agentId,
+          pending.tenantId,
+          'kiro',
+          'subscription',
+          pending.label,
+          serializeKiroOAuthTokenBlob(blob),
+          undefined,
+        )
+      : await this.providerService.upsertProvider(
+          pending.agentId,
+          pending.tenantId,
+          'kiro',
+          serializeKiroOAuthTokenBlob(blob),
+          'subscription',
+          undefined,
+          await this.providerService.nextOAuthLabel(pending.tenantId, 'kiro'),
+          pending.createdByUserId,
+        );
     try {
       await this.discoveryService.discoverModels(savedProvider);
     } catch (err) {
@@ -328,7 +339,7 @@ export class KiroOauthService {
 
   private resolveAuthorizationOptions(
     options: KiroAuthorizationOptions,
-  ): Required<KiroAuthorizationOptions> {
+  ): Required<Pick<KiroAuthorizationOptions, 'region' | 'startUrl'>> {
     return {
       region: normalizeKiroRegion(options.region ?? this.region),
       startUrl: normalizeKiroStartUrl(options.startUrl ?? this.startUrl),

@@ -5,6 +5,7 @@ import type {
   OutputModality,
   SpecificityCategory,
   TierSlot,
+  CredentialSelectionMode,
 } from 'manifest-shared';
 
 export type { AuthType } from 'manifest-shared';
@@ -26,6 +27,8 @@ export interface ResolveResponse {
    * Replaces the legacy `fallback_models: string[]` field.
    */
   fallback_routes: ModelRoute[] | null;
+  /** Credential selection policy for direct alias routes, when configured. */
+  credential_mode?: CredentialSelectionMode;
   /** Effective output modality configured on the resolved routing chain. */
   output_modality?: OutputModality;
   /** Effective transport policy configured on the resolved routing chain. */

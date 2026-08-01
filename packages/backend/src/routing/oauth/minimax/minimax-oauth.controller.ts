@@ -26,6 +26,7 @@ export class MinimaxOauthController {
     @Query('agentName') agentName: string,
     @Query('region') region: string | undefined,
     @TenantCtx() ctx: TenantContext,
+    @Query('label') label: string | string[] | undefined = undefined,
   ) {
     if (!agentName) {
       throw new HttpException('agentName query parameter is required', HttpStatus.BAD_REQUEST);
@@ -39,13 +40,22 @@ export class MinimaxOauthController {
 
     const agent = await this.resolveAgent.resolve(ctx.tenantId, agentName);
     const selectedRegion = region && isMinimaxRegion(region) ? region : 'global';
+    const keyLabel = optionalTrimmedStringQuery(label, 'label');
     try {
-      return await this.oauthService.startAuthorization(
-        agent.id,
-        agent.tenant_id,
-        selectedRegion,
-        ctx.userId,
-      );
+      return keyLabel
+        ? await this.oauthService.startAuthorization(
+            agent.id,
+            agent.tenant_id,
+            selectedRegion,
+            ctx.userId,
+            keyLabel,
+          )
+        : await this.oauthService.startAuthorization(
+            agent.id,
+            agent.tenant_id,
+            selectedRegion,
+            ctx.userId,
+          );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start MiniMax OAuth';
       throw new HttpException(message, HttpStatus.SERVICE_UNAVAILABLE);

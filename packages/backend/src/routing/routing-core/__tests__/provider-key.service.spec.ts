@@ -551,6 +551,16 @@ describe('ProviderKeyService', () => {
         discovered('openai', 'gpt-5.5', 'api_key'),
         discovered('openai', 'gpt-5.5', 'subscription'),
       ]);
+      providerRepo.find.mockResolvedValue([
+        {
+          provider: 'openai',
+          auth_type: 'subscription',
+          api_key_encrypted: 'enc',
+          is_active: true,
+          label: 'Default',
+        } as TenantProvider,
+      ]);
+      mockedDecrypt.mockReturnValue('subscription-token');
       expect(
         await svc.isRouteAvailable('tenant-1', {
           provider: 'openai',
@@ -593,8 +603,15 @@ describe('ProviderKeyService', () => {
     it('falls back to an active provider record when discovery is cold', async () => {
       discoveryService.getModelsForAgent.mockResolvedValue([]);
       providerRepo.find.mockResolvedValue([
-        { provider: 'openai', auth_type: 'subscription', is_active: true } as TenantProvider,
+        {
+          provider: 'openai',
+          auth_type: 'subscription',
+          api_key_encrypted: 'enc',
+          is_active: true,
+          label: 'Default',
+        } as TenantProvider,
       ]);
+      mockedDecrypt.mockReturnValue('subscription-token');
       expect(
         await svc.isRouteAvailable('tenant-1', {
           provider: 'openai',
@@ -636,6 +653,16 @@ describe('ProviderKeyService', () => {
       discoveryService.getModelsForAgent.mockResolvedValue([
         discovered('openai', 'gpt-5.5', undefined),
       ]);
+      providerRepo.find.mockResolvedValue([
+        {
+          provider: 'openai',
+          auth_type: 'subscription',
+          api_key_encrypted: 'enc',
+          is_active: true,
+          label: 'Default',
+        } as TenantProvider,
+      ]);
+      mockedDecrypt.mockReturnValue('subscription-token');
       expect(
         await svc.isRouteAvailable('tenant-1', {
           provider: 'openai',

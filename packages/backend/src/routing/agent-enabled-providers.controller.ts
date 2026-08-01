@@ -5,6 +5,7 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  Optional,
   Param,
   Put,
 } from '@nestjs/common';
@@ -17,8 +18,10 @@ import { TenantProvider } from '../entities/tenant-provider.entity';
 import { TierAssignment } from '../entities/tier-assignment.entity';
 import { SpecificityAssignment } from '../entities/specificity-assignment.entity';
 import { HeaderTier } from '../entities/header-tier.entity';
+import { ExposedModelRoute } from '../entities/exposed-model-route.entity';
 import { ProviderService } from './routing-core/provider.service';
 import type { ModelRoute } from 'manifest-shared';
+import { expandProviderNames } from '../common/utils/provider-aliases';
 
 @Controller('api/v1/agents/:agentName/enabled-providers')
 export class AgentEnabledProvidersController {
@@ -36,6 +39,9 @@ export class AgentEnabledProvidersController {
     @InjectRepository(HeaderTier)
     private readonly headerTierRepo: Repository<HeaderTier>,
     private readonly providerService: ProviderService,
+    @Optional()
+    @InjectRepository(ExposedModelRoute)
+    private readonly exposedModelRouteRepo: Repository<ExposedModelRoute> | null = null,
   ) {}
 
   private async resolveAgent(agentName: string, tenantId: string | null) {
@@ -80,13 +86,13 @@ export class AgentEnabledProvidersController {
     const providerModels = new Set(
       (Array.isArray(provider.cached_models) ? provider.cached_models : []).map((m) => m.id),
     );
-    const providerName = provider.provider.toLowerCase();
+    const providerNames = expandProviderNames([provider.provider]);
     const providerAuthType = provider.auth_type;
     const providerLabel = provider.label?.toLowerCase();
     const routeBelongsToDisabledProvider = (route: ModelRoute | null): boolean => {
       if (!route) return false;
       if (route.provider) {
-        if (route.provider.toLowerCase() !== providerName) return false;
+        if (!providerNames.has(route.provider.toLowerCase())) return false;
         if (route.authType && route.authType !== providerAuthType) return false;
         if (route.keyLabel && providerLabel && route.keyLabel.toLowerCase() !== providerLabel) {
           return false;
@@ -100,7 +106,12 @@ export class AgentEnabledProvidersController {
     };
 
     const tiers = await this.tierRepo.find({ where: { agent_id: agentId } });
-    const affected: Array<{ tier: string; model: string; position: string }> = [];
+    const affected: Array<{
+      tier: string;
+      model: string;
+      position: string;
+      alias_id?: string;
+    }> = [];
 
     for (const tier of tiers) {
       if (routeBelongsToDisabledProvider(tier.override_route)) {
@@ -141,6 +152,31 @@ export class AgentEnabledProvidersController {
       for (const [i, fb] of (tier.fallback_routes ?? []).entries()) {
         if (routeBelongsToDisabledProvider(fb)) {
           affected.push({ tier: tier.name, model: fb.model, position: `fallback ${i + 1}` });
+        }
+      }
+    }
+
+    if (this.exposedModelRouteRepo) {
+      const aliases = await this.exposedModelRouteRepo.find({ where: { agent_id: agentId } });
+      for (const alias of aliases) {
+        if (alias.source_kind !== 'direct') continue;
+        if (routeBelongsToDisabledProvider(alias.route)) {
+          affected.push({
+            tier: 'alias',
+            model: alias.route!.model,
+            position: `alias ${alias.model_id}`,
+            alias_id: alias.id,
+          });
+        }
+        for (const [i, fallback] of (alias.fallback_routes ?? []).entries()) {
+          if (routeBelongsToDisabledProvider(fallback)) {
+            affected.push({
+              tier: 'alias',
+              model: fallback.model,
+              position: `alias ${alias.model_id} fallback ${i + 1}`,
+              alias_id: alias.id,
+            });
+          }
         }
       }
     }

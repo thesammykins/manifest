@@ -24,6 +24,8 @@ export { SPECIFICITY_CATEGORIES } from './specificity';
 export type { SpecificityCategory } from './specificity';
 export { AUTH_TYPES } from './auth-types';
 export type { AuthType } from './auth-types';
+export { CREDENTIAL_SELECTION_MODES } from './credential-selection';
+export type { CredentialSelectionMode } from './credential-selection';
 export {
   ERROR_ORIGINS,
   ERROR_CLASSES,

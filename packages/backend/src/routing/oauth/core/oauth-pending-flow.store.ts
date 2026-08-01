@@ -8,6 +8,8 @@ export interface OAuthPendingFlowInput {
   agentId: string;
   /** Tenant that owns the flow — the scope every lookup filters by. */
   tenantId: string;
+  /** Existing provider account to reauthenticate; omitted for a new account. */
+  label?: string;
 }
 
 export interface OAuthPendingFlowRecord extends OAuthPendingFlowInput {
@@ -22,6 +24,7 @@ interface RawOAuthPendingFlow {
   agent_id: string;
   tenant_id: string;
   expires_at: Date | string;
+  label?: string | null;
 }
 
 @Injectable()
@@ -50,10 +53,18 @@ export class OAuthPendingFlowStore {
     await this.dataSource.query(
       `
         INSERT INTO "oauth_pending_flows"
-          ("provider", "state", "code_verifier", "agent_id", "tenant_id", "expires_at")
-        VALUES ($1, $2, $3, $4, $5, $6)
+          ("provider", "state", "code_verifier", "agent_id", "tenant_id", "label", "expires_at")
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
       `,
-      [provider, input.state, input.verifier, input.agentId, input.tenantId, expiresAt],
+      [
+        provider,
+        input.state,
+        input.verifier,
+        input.agentId,
+        input.tenantId,
+        input.label ?? null,
+        expiresAt,
+      ],
     );
 
     return { provider, ...input, expiresAt: expiresAt.getTime() };
@@ -73,7 +84,7 @@ export class OAuthPendingFlowStore {
           AND "agent_id" = $3
           AND "tenant_id" = $4
           AND "expires_at" > NOW()
-        RETURNING "provider", "state", "code_verifier", "agent_id", "tenant_id", "expires_at"
+        RETURNING "provider", "state", "code_verifier", "agent_id", "tenant_id", "label", "expires_at"
       `,
       [provider, state, agentId, tenantId],
     );
@@ -90,7 +101,7 @@ export class OAuthPendingFlowStore {
     await this.cleanupExpired(provider);
     const rows = (await this.dataSource.query(
       `
-        SELECT "provider", "state", "code_verifier", "agent_id", "tenant_id", "expires_at"
+        SELECT "provider", "state", "code_verifier", "agent_id", "tenant_id", "label", "expires_at"
         FROM "oauth_pending_flows"
         WHERE "provider" = $1
           AND "agent_id" = $2
@@ -169,6 +180,7 @@ function mapRow(row: RawOAuthPendingFlow): OAuthPendingFlowRecord {
     verifier: row.code_verifier,
     agentId: row.agent_id,
     tenantId: row.tenant_id,
+    ...(row.label ? { label: row.label } : {}),
     expiresAt,
   };
 }

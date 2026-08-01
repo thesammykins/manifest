@@ -296,6 +296,7 @@ export class ProxyService {
       provider: route.provider,
       auth_type: route.authType,
       provider_key_label: route.keyLabel ?? undefined,
+      credential_mode: resolved.credential_mode,
     });
 
     const primaryModel = normalizeProviderModel(route.provider, route.model);
@@ -436,6 +437,8 @@ export class ProxyService {
       tenantId,
       rawApiKey: credentials.rawApiKey,
       providerKeyLabel: credentials.keyLabel ?? route.keyLabel ?? undefined,
+      credentialAlternates: credentials.alternateKeyLabels,
+      credentialMode: resolved.credential_mode,
       authType: route.authType,
       apiMode,
       resourceUrl: credentials.resourceUrl,
@@ -557,6 +560,8 @@ export class ProxyService {
             statusText: forward.response.statusText,
             headers: forward.response.headers,
           }),
+          tenantProviderId: forward.tenantProviderId,
+          providerKeyLabel: forward.providerKeyLabel,
           attempt: forward.attempt,
           isGoogle: forward.isGoogle,
           isAnthropic: forward.isAnthropic,
@@ -578,7 +583,8 @@ export class ProxyService {
           forward: peeked,
           meta: this.buildBaseMeta(resolved, primaryModel, {
             request_params: primaryRequestParams,
-            tenantProviderId: credentials.tenantProviderId,
+            provider_key_label: forward.providerKeyLabel ?? credentials.keyLabel,
+            tenantProviderId: forward.tenantProviderId ?? credentials.tenantProviderId,
             attempt: forward.attempt,
             providerCallStarted: forward.providerCallStarted,
             autofixOriginalAttempt,
@@ -597,6 +603,8 @@ export class ProxyService {
           JSON.stringify({ error: { message: `Stream warmup failed: ${warmup.message}` } }),
           { status: 502, headers: { 'content-type': 'application/json' } },
         ),
+        tenantProviderId: forward.tenantProviderId,
+        providerKeyLabel: forward.providerKeyLabel,
         attempt: forward.attempt,
         isGoogle: forward.isGoogle,
         isAnthropic: forward.isAnthropic,
@@ -655,7 +663,8 @@ export class ProxyService {
         forward: syntheticForward,
         meta: this.buildBaseMeta(resolved, primaryModel, {
           request_params: primaryRequestParams,
-          tenantProviderId: credentials.tenantProviderId,
+          provider_key_label: forward.providerKeyLabel ?? credentials.keyLabel,
+          tenantProviderId: forward.tenantProviderId ?? credentials.tenantProviderId,
           attempt: forward.attempt,
           providerCallStarted: forward.providerCallStarted,
           autofixOriginalAttempt,
@@ -671,7 +680,8 @@ export class ProxyService {
       forward,
       meta: this.buildBaseMeta(resolved, primaryModel, {
         request_params: primaryRequestParams,
-        tenantProviderId: credentials.tenantProviderId,
+        provider_key_label: forward.providerKeyLabel ?? credentials.keyLabel,
+        tenantProviderId: forward.tenantProviderId ?? credentials.tenantProviderId,
         attempt: forward.attempt,
         providerCallStarted: forward.providerCallStarted,
         autofixOriginalAttempt,
@@ -722,6 +732,7 @@ export class ProxyService {
       model: ctx.model,
       signal: ctx.signal,
       authType: ctx.authType,
+      providerKeyLabel: ctx.keyLabel,
       tenantProviderId: ctx.tenantProviderId,
       startProviderAttempt: ctx.startProviderAttempt,
     });
@@ -757,6 +768,7 @@ export class ProxyService {
       provider: route.provider,
       auth_type: route.authType,
       provider_key_label: route.keyLabel ?? undefined,
+      credential_mode: resolved.credential_mode,
     });
     if (!credentials.ok) {
       return this.retryHealedOnOriginalTransport(
@@ -790,6 +802,8 @@ export class ProxyService {
       // Resolved label (pins an unpinned subscription to the selected row) so
       // the recorded connection matches credentials.tenantProviderId.
       providerKeyLabel: credentials.keyLabel ?? route.keyLabel ?? undefined,
+      credentialAlternates: credentials.alternateKeyLabels,
+      credentialMode: resolved.credential_mode,
       authType: route.authType,
       apiMode: ctx.apiMode,
       resourceUrl: credentials.resourceUrl,
@@ -832,6 +846,7 @@ export class ProxyService {
       model: healedModel,
       signal: ctx.signal,
       authType: ctx.authType,
+      providerKeyLabel: ctx.keyLabel,
       tenantProviderId: ctx.tenantProviderId,
       startProviderAttempt: ctx.startProviderAttempt,
     });
@@ -1168,7 +1183,12 @@ export class ProxyService {
   private resolveCredentials(
     agentId: string,
     tenantId: string,
-    resolved: { provider: string; auth_type?: AuthType; provider_key_label?: string },
+    resolved: {
+      provider: string;
+      auth_type?: AuthType;
+      provider_key_label?: string;
+      credential_mode?: ResolvedRouting['credential_mode'];
+    },
   ): Promise<ResolvedRouteCredentials> {
     return resolveRouteCredentials(this.routeCredentialDeps(), {
       agentId,
@@ -1176,6 +1196,7 @@ export class ProxyService {
       provider: resolved.provider,
       authType: resolved.auth_type,
       providerKeyLabel: resolved.provider_key_label,
+      credentialMode: resolved.credential_mode,
     });
   }
 
@@ -1253,6 +1274,7 @@ export class ProxyService {
     const primaryStatus = forward.response.status;
     const primaryErrorBody = await forward.response.text();
     await forward.attempt?.finishRecording?.(recordingResponseFromText(primaryErrorBody));
+    const primaryTenantProviderId = forward.tenantProviderId ?? args.primaryTenantProviderId;
     const primaryProvider = resolved.route?.provider;
     const primaryAuth = resolved.route?.authType;
     const { success, failures } = await this.fallbackService.tryFallbacks(
@@ -1275,6 +1297,7 @@ export class ProxyService {
       args.startProviderAttempt,
       args.credentialDashboardUrl,
       providerCacheKey,
+      resolved.credential_mode,
     );
 
     this.recordTierIfScoring(sessionMomentumKey, resolved.tier);
@@ -1321,7 +1344,7 @@ export class ProxyService {
           primaryErrorBody,
           primaryProvider,
           primaryAuthType: primaryAuth,
-          primaryTenantProviderId: args.primaryTenantProviderId,
+          primaryTenantProviderId,
           primaryAttempt: forward.attempt,
           primaryProviderCallStarted: forward.providerCallStarted,
           attempt: success.forward.attempt,
@@ -1381,7 +1404,7 @@ export class ProxyService {
       meta: this.buildBaseMeta(resolved, primaryModel, {
         request_params: exhaustedRequestParams,
         // Exhausted chain is recorded against the primary connection.
-        tenantProviderId: args.primaryTenantProviderId,
+        tenantProviderId: primaryTenantProviderId,
         primaryAttempt: forward.attempt,
         primaryProviderCallStarted: forward.providerCallStarted,
         attempt: failures[failures.length - 1]?.attempt ?? forward.attempt,
