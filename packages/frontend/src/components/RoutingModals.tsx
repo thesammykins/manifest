@@ -70,6 +70,7 @@ interface RoutingModalsProps {
   ) => void;
   onProviderUpdate: () => Promise<void>;
   onProviderPoll?: () => Promise<void>;
+  onOpenProviderModal?: () => void;
 }
 
 interface PendingOverride {
@@ -103,6 +104,13 @@ const RoutingModals: Component<RoutingModalsProps> = (props) => {
       props.specificityAssignments?.().find((assignment) => assignment.category === category)
         ?.response_mode,
     );
+  const openProviders = () => {
+    if (props.onOpenProviderModal) {
+      props.onOpenProviderModal();
+      return;
+    }
+    navigate(`/harnesses/${encodeURIComponent(props.agentName())}/providers`);
+  };
 
   const handleSelect = (
     tierId: string,
@@ -158,7 +166,7 @@ const RoutingModals: Component<RoutingModalsProps> = (props) => {
               onClose={props.onDropdownClose}
               onConnectProviders={() => {
                 props.onDropdownClose();
-                navigate(`/harnesses/${encodeURIComponent(props.agentName())}/providers`);
+                openProviders();
               }}
               onProviderRefreshed={props.onProviderUpdate}
             />
@@ -188,7 +196,7 @@ const RoutingModals: Component<RoutingModalsProps> = (props) => {
                 onClose={() => props.onSpecificityDropdownClose?.()}
                 onConnectProviders={() => {
                   props.onSpecificityDropdownClose?.();
-                  navigate(`/harnesses/${encodeURIComponent(props.agentName())}/providers`);
+                  openProviders();
                 }}
                 onProviderRefreshed={props.onProviderUpdate}
               />
@@ -296,7 +304,7 @@ const RoutingModals: Component<RoutingModalsProps> = (props) => {
                 onClose={props.onFallbackPickerClose}
                 onConnectProviders={() => {
                   props.onFallbackPickerClose();
-                  navigate(`/harnesses/${encodeURIComponent(props.agentName())}/providers`);
+                  openProviders();
                 }}
                 onProviderRefreshed={props.onProviderUpdate}
               />

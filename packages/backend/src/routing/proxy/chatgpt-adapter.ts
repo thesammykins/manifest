@@ -269,7 +269,8 @@ export function fromResponsesResponse(
       completion_tokens: (usage.output_tokens as number) ?? 0,
       total_tokens: (usage.total_tokens as number) ?? 0,
       cache_read_tokens: inputDetails?.cached_tokens ?? 0,
-      cache_creation_tokens: 0,
+      cache_creation_tokens:
+        inputDetails?.cache_write_tokens ?? inputDetails?.cache_creation_input_tokens ?? 0,
     },
   };
 }
@@ -706,7 +707,8 @@ function extractResponseUsage(
     completion_tokens: (responseUsage.output_tokens as number) ?? 0,
     total_tokens: (responseUsage.total_tokens as number) ?? 0,
     cache_read_tokens: inputDetails?.cached_tokens ?? 0,
-    cache_creation_tokens: 0,
+    cache_creation_tokens:
+      inputDetails?.cache_write_tokens ?? inputDetails?.cache_creation_input_tokens ?? 0,
   };
 }
 
@@ -888,7 +890,7 @@ function resolveResponseItemIndex(
   return toolCallMap.size;
 }
 
-function buildResponsesSseError(data: Record<string, unknown>): ResponsesSseError {
+export function buildResponsesSseError(data: Record<string, unknown>): ResponsesSseError {
   const response = isObjectRecord(data.response) ? data.response : undefined;
   const error = isObjectRecord(data.error)
     ? data.error

@@ -32,6 +32,7 @@ function makeDiscovered(overrides: Partial<DiscoveredModel> = {}): DiscoveredMod
 }
 
 describe('ModelController', () => {
+  const previousMode = process.env['MANIFEST_MODE'];
   let controller: ModelController;
   let mockDiscoveryService: Record<string, jest.Mock>;
   let mockOllamaSync: Record<string, jest.Mock>;
@@ -45,6 +46,7 @@ describe('ModelController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env['MANIFEST_MODE'] = 'selfhosted';
     mockDiscoveryService = {
       getModelsForAgent: jest.fn().mockResolvedValue([]),
       getModelsForAgentWithFilterState: jest.fn().mockResolvedValue([]),
@@ -100,6 +102,11 @@ describe('ModelController', () => {
       mockOpencodeGoCatalog as unknown as OpencodeGoCatalogService,
       mockModelFilters as unknown as AgentModelFilterService,
     );
+  });
+
+  afterAll(() => {
+    if (previousMode === undefined) delete process.env['MANIFEST_MODE'];
+    else process.env['MANIFEST_MODE'] = previousMode;
   });
 
   /* ── pricingHealth ── */
@@ -166,6 +173,15 @@ describe('ModelController', () => {
       const result = await controller.syncOllama();
       expect(mockOllamaSync.sync).toHaveBeenCalled();
       expect(result).toEqual({ count: 0 });
+    });
+
+    it('rejects Ollama sync in cloud without dialing localhost', async () => {
+      process.env['MANIFEST_MODE'] = 'cloud';
+
+      await expect(controller.syncOllama()).rejects.toThrow(
+        'Built-in local providers are only available in self-hosted Manifest',
+      );
+      expect(mockOllamaSync.sync).not.toHaveBeenCalled();
     });
   });
 
@@ -293,6 +309,16 @@ describe('ModelController', () => {
         quality_score: 3,
         display_name: 'GPT-4o',
       });
+    });
+
+    it('surfaces curated known modalities in the picker payload when discovery has none', async () => {
+      mockDiscoveryService.getModelsForAgent.mockResolvedValue([
+        makeDiscovered({ id: 'gpt-5.4-mini', provider: 'openai', authType: 'subscription' }),
+      ]);
+
+      const result = await controller.getAvailableModels(mockCtx, mockAgentName);
+
+      expect(result[0].input_modalities).toEqual(['text', 'image']);
     });
 
     it('includes the per-request cost for OpenCode Go subscription models', async () => {

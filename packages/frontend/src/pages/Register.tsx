@@ -94,7 +94,7 @@ const Register: Component = () => {
       name: name(),
       email: email(),
       password: password(),
-      callbackURL: '/upgrade',
+      callbackURL: '/welcome',
     });
 
     setLoading(false);
@@ -110,17 +110,7 @@ const Register: Component = () => {
     setLastAuthMethod('email');
 
     if (data?.token) {
-      try {
-        const status = await getBillingStatus();
-        if (status?.enabled) {
-          setProPrice(formatBillingPrice(status.priceMonthly));
-          window.location.href = '/register?step=plan';
-          return;
-        }
-      } catch {
-        /* billing unavailable — skip plan step */
-      }
-      window.location.href = '/';
+      window.location.href = '/welcome';
       return;
     }
 
@@ -159,7 +149,7 @@ const Register: Component = () => {
 
     const { error: resendError } = await authClient.sendVerificationEmail({
       email: email(),
-      callbackURL: '/upgrade',
+      callbackURL: '/welcome',
     });
 
     if (resendError) {

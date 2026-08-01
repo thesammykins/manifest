@@ -13,6 +13,7 @@ import { authClient } from '../services/auth-client.js';
 import { agentDisplayName } from '../services/agent-display-name.js';
 import { agentPlatformIcon } from '../services/agent-platform-store.js';
 import { checkIsSelfHosted } from '../services/setup-status.js';
+import NotificationBell from './NotificationBell.jsx';
 import { getBillingStatus } from '../services/api/billing.js';
 import {
   connectionBreadcrumbName,
@@ -157,14 +158,6 @@ const Header: Component<HeaderProps> = (props) => {
             Self-hosted
           </span>
         </Show>
-        {__DEV_MODE__ && (
-          <span
-            class="header__mode-badge header__mode-badge--dev"
-            title="Vite dev server (npm run dev). Not a production build."
-          >
-            Dev
-          </span>
-        )}
         <Show when={getAgentName()}>
           <span class="header__separator">/</span>
           <A
@@ -312,6 +305,7 @@ const Header: Component<HeaderProps> = (props) => {
           </svg>
           Docs
         </a>
+        <NotificationBell />
         <Show when={!starDismissed()}>
           <div class="header__star-separator" />
           <div class="header__github-star">

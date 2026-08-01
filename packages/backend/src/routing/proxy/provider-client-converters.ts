@@ -93,7 +93,7 @@ export {
 };
 export type { GoogleStreamChunkResult } from './google-adapter';
 export type { ThinkingBlocksCallback } from './anthropic-adapter';
-export type { SignatureLookup, ThinkingBlockLookup, ReasoningContentLookup } from './proxy-types';
+export type { SignatureLookup, ThinkingBlockLookup } from './proxy-types';
 
 // ─── OpenAI body sanitization (used by ProviderClient.forward) ───────────────
 
@@ -218,12 +218,7 @@ function supportsReasoningDetails(endpointKey: string): boolean {
   return endpointKey === 'openrouter';
 }
 
-function sanitizeOpenAiMessages(
-  messages: unknown,
-  endpointKey: string,
-  model: string,
-  reasoningContentLookup?: (firstToolCallId: string) => string | null,
-): unknown {
+function sanitizeOpenAiMessages(messages: unknown, endpointKey: string, model: string): unknown {
   if (!Array.isArray(messages)) return messages;
 
   const preserveReasoningContent = supportsReasoningContent(endpointKey, model);
@@ -302,26 +297,6 @@ function sanitizeOpenAiMessages(
       delete cleaned.reasoning_details;
     }
 
-    if (
-      preserveReasoningContent &&
-      Array.isArray(cleaned.tool_calls) &&
-      cleaned.tool_calls.length > 0 &&
-      !hasNonEmptyReasoningContent(cleaned)
-    ) {
-      const firstToolCall = cleaned.tool_calls[0];
-      const firstToolCallId =
-        firstToolCall && typeof firstToolCall === 'object' && !Array.isArray(firstToolCall)
-          ? (firstToolCall as Record<string, unknown>).id
-          : undefined;
-      if (reasoningContentLookup && typeof firstToolCallId === 'string') {
-        const cached = reasoningContentLookup(firstToolCallId);
-        if (cached) cleaned.reasoning_content = cached;
-      }
-      if (!hasNonEmptyReasoningContent(cleaned)) {
-        cleaned.reasoning_content = '';
-      }
-    }
-
     if (isMistral && Array.isArray(cleaned.tool_calls)) {
       cleaned.tool_calls = cleaned.tool_calls.map((toolCall) => {
         if (!toolCall || typeof toolCall !== 'object' || Array.isArray(toolCall)) {
@@ -339,10 +314,6 @@ function sanitizeOpenAiMessages(
 
     return cleaned;
   });
-}
-
-function hasNonEmptyReasoningContent(message: Record<string, unknown>): boolean {
-  return typeof message.reasoning_content === 'string' && message.reasoning_content.length > 0;
 }
 
 function normalizeDeepSeekMaxTokens(body: Record<string, unknown>): void {
@@ -368,7 +339,6 @@ export function sanitizeOpenAiBody(
   body: Record<string, unknown>,
   endpointKey: string,
   model: string,
-  reasoningContentLookup?: (firstToolCallId: string) => string | null,
 ): Record<string, unknown> {
   const passthroughTopLevel = PASSTHROUGH_PROVIDERS.has(endpointKey);
 
@@ -381,7 +351,7 @@ export function sanitizeOpenAiBody(
   const cleaned: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body)) {
     if (key === 'messages') {
-      cleaned[key] = sanitizeOpenAiMessages(value, endpointKey, model, reasoningContentLookup);
+      cleaned[key] = sanitizeOpenAiMessages(value, endpointKey, model);
       continue;
     }
     // Rewrite max_tokens → max_completion_tokens for OpenAI-backed endpoints that
@@ -392,6 +362,10 @@ export function sanitizeOpenAiBody(
       continue;
     }
     if (passthroughTopLevel) {
+      cleaned[key] = value;
+      continue;
+    }
+    if (key === 'reasoning_effort' && (endpointKey === 'xai' || endpointKey === 'deepseek')) {
       cleaned[key] = value;
       continue;
     }

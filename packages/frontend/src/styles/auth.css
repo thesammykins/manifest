@@ -173,6 +173,22 @@
   line-height: 1.5;
 }
 
+.auth-form__notice {
+  padding: var(--gap-sm) var(--gap-md);
+  background: hsl(var(--muted) / 0.5);
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.auth-form__notice-link {
+  color: hsl(var(--primary));
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 .auth-form__link-btn {
   background: none;
   border: none;
