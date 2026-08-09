@@ -37,10 +37,13 @@ export class RedactRequestParamSecrets1802000000000 implements MigrationInterfac
             RETURN result;
           WHEN 'array' THEN
             SELECT coalesce(
-              jsonb_agg(pg_temp.redact_request_param_secrets(element.value, p_keys)),
+              jsonb_agg(
+                pg_temp.redact_request_param_secrets(element.value, p_keys)
+                ORDER BY element.ordinality
+              ),
               '[]'::jsonb
             ) INTO result
-            FROM jsonb_array_elements(p_value) AS element(value);
+            FROM jsonb_array_elements(p_value) WITH ORDINALITY AS element(value, ordinality);
             RETURN result;
           ELSE
             RETURN p_value;

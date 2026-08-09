@@ -13,7 +13,8 @@ describe('RedactRequestParamSecrets1802000000000', () => {
     const statements = query.mock.calls.map(([sql]) => String(sql));
     expect(statements[0]).toContain('pg_temp.redact_request_param_secrets');
     expect(statements[0]).toContain('jsonb_each');
-    expect(statements[0]).toContain('jsonb_array_elements');
+    expect(statements[0]).toContain('jsonb_array_elements(p_value) WITH ORDINALITY');
+    expect(statements[0]).toContain('ORDER BY element.ordinality');
     for (const table of ['agent_messages', 'exposed_model_routes', 'requests']) {
       const statement = statements.find((sql) => sql.includes(`UPDATE "${table}"`));
       expect(statement).toContain('IS DISTINCT FROM redacted.value');
