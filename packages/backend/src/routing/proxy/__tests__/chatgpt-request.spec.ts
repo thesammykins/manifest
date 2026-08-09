@@ -26,58 +26,7 @@ describe('ChatGPT Adapter – toResponsesRequest', () => {
     expect(result.stream).toBe(false);
   });
 
-  it('maps flat reasoning_effort to Responses reasoning with summaries enabled', () => {
-    const result = toResponsesRequest(
-      {
-        messages: [{ role: 'user', content: 'Hello world' }],
-        reasoning_effort: 'high',
-      },
-      'gpt-5',
-    );
-
-    expect(result.reasoning).toEqual({ effort: 'high', summary: 'auto' });
-  });
-
-  it('maps OpenCode reasoning option names to Responses reasoning', () => {
-    const result = toResponsesRequest(
-      {
-        messages: [{ role: 'user', content: 'Hello world' }],
-        reasoningEffort: 'low',
-        reasoningSummary: 'auto',
-      },
-      'gpt-5',
-    );
-
-    expect(result.reasoning).toEqual({ effort: 'low', summary: 'auto' });
-  });
-
-  it('does not overwrite an explicit Responses reasoning object', () => {
-    const result = toResponsesRequest(
-      {
-        messages: [{ role: 'user', content: 'Hello world' }],
-        reasoning_effort: 'low',
-        reasoning: { effort: 'medium', summary: 'auto' },
-      },
-      'gpt-5',
-    );
-
-    expect(result.reasoning).toEqual({ effort: 'medium', summary: 'auto' });
-  });
-
-  it('fills missing explicit reasoning fields from flat options', () => {
-    const result = toResponsesRequest(
-      {
-        messages: [{ role: 'user', content: 'Hello world' }],
-        reasoning: { effort: 'high' },
-        reasoningSummary: 'auto',
-      },
-      'gpt-5',
-    );
-
-    expect(result.reasoning).toEqual({ effort: 'high', summary: 'auto' });
-  });
-
-  it('defaults reasoning summaries when an explicit reasoning effort omits summary', () => {
+  it('preserves an explicit Responses reasoning object without adding a summary', () => {
     const result = toResponsesRequest(
       {
         messages: [{ role: 'user', content: 'Hello world' }],
@@ -86,7 +35,7 @@ describe('ChatGPT Adapter – toResponsesRequest', () => {
       'gpt-5',
     );
 
-    expect(result.reasoning).toEqual({ effort: 'medium', summary: 'auto' });
+    expect(result.reasoning).toEqual({ effort: 'medium' });
   });
 
   it('extracts system message as instructions', () => {

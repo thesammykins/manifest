@@ -1601,12 +1601,18 @@ describe('proxy-response-handler', () => {
       expect(opened).toContain('event: response.content_part.added');
       expect(opened).toContain('event: response.output_text.delta');
 
+      // Completion is only valid after the upstream provides its terminal
+      // finish reason. A content delta by itself can be followed by a
+      // truncated stream, which must remain incomplete.
+      capturedTransform!('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+
       // finalize must close the item and terminate the stream itself, since
       // pipeStream skips its own [DONE] when a finalize is supplied.
       expect(capturedFinalize).toBeDefined();
       const tail = capturedFinalize!()!;
       expect(tail).toContain('event: response.output_item.done');
       expect(tail).toContain('event: response.completed');
+      expect(tail).toContain('"status":"completed"');
       expect(tail).toContain('"text":"Hi"');
       expect(tail.trimEnd().endsWith('data: [DONE]')).toBe(true);
     });
