@@ -1,6 +1,8 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { migrations } from './data-source-definitions';
+import { entities, migrations } from './data-source-definitions';
+import { ExposedModelRoute } from '../entities/exposed-model-route.entity';
+import { AgentModelFilter } from '../entities/agent-model-filter.entity';
 
 describe('migration registry', () => {
   it('registers every source migration exactly once', () => {
@@ -14,5 +16,20 @@ describe('migration registry', () => {
     const registeredNames = migrations.map((Migration) => Migration.name).sort();
 
     expect(registeredNames).toEqual(sourceNames);
+  });
+
+  it('registers the credential-routing schema prerequisites in order', () => {
+    const migrationIndex = (name: string) =>
+      migrations.findIndex((Migration) => Migration.name === name);
+
+    expect(entities).toEqual(expect.arrayContaining([ExposedModelRoute, AgentModelFilter]));
+    expect(migrationIndex('AddExposedModelRoutes1795200000000')).toBeGreaterThanOrEqual(0);
+    expect(migrationIndex('AddAgentModelFilters1800400000000')).toBeGreaterThanOrEqual(0);
+    expect(migrationIndex('AddExposedModelRoutes1795200000000')).toBeLessThan(
+      migrationIndex('AddCredentialSelectionAndOAuthLabels1801700000000'),
+    );
+    expect(migrationIndex('AddAgentModelFilters1800400000000')).toBeLessThan(
+      migrationIndex('AddRequestsAndProviderAttempts1801000000000'),
+    );
   });
 });

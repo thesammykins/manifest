@@ -709,7 +709,7 @@ export class ResolveService {
   }
 
   private async enrichRouteKeyLabel(
-    _agentId: string,
+    agentId: string,
     tenantId: string,
     route: ModelRoute,
   ): Promise<ModelRoute> {
@@ -718,7 +718,7 @@ export class ResolveService {
       tenantId,
       route.provider,
       route.authType,
-      _agentId,
+      agentId,
     );
     return keyLabel ? { ...route, keyLabel } : route;
   }
