@@ -119,10 +119,12 @@ describe('Routing disabled → null model (OpenClaw uses Gemini default)', () =>
 describe('Routing enabled → scorer routes by query complexity', () => {
   beforeAll(async () => {
     await auth(api().post('/api/v1/routing/test-agent/providers'))
-      .send({ provider: 'openai' })
+      // A connected provider without a credential is intentionally not
+      // routable: the resolver must never return a route it cannot forward.
+      .send({ provider: 'openai', apiKey: 'test-openai-api-key' })
       .expect(201);
     await auth(api().post('/api/v1/routing/test-agent/providers'))
-      .send({ provider: 'anthropic' })
+      .send({ provider: 'anthropic', apiKey: 'test-anthropic-api-key' })
       .expect(201);
 
     // Seed discovered models on provider records so tier auto-assign can pick them
@@ -431,7 +433,7 @@ describe('Routing disabled after deactivation → falls back to null', () => {
 
   it('re-enabling providers restores model routing', async () => {
     await auth(api().post('/api/v1/routing/test-agent/providers'))
-      .send({ provider: 'openai' })
+      .send({ provider: 'openai', apiKey: 'test-openai-api-key' })
       .expect(201);
 
     // Re-seed cached_models on the re-activated provider
