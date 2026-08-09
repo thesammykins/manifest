@@ -23,6 +23,37 @@ export interface RequestParamsSnapshotInput {
   specs: readonly ProviderParamSpec[];
 }
 
+// This matches the credential names already scrubbed from upstream errors and
+// request headers. Request parameters may be nested, so compare each object
+// key after folding common wire-name separators.
+export const SENSITIVE_REQUEST_PARAM_KEYS = [
+  'access_token',
+  'api_key',
+  'api_token',
+  'auth_token',
+  'authorization',
+  'bearer_token',
+  'client_secret',
+  'cookie',
+  'credential',
+  'credentials',
+  'device_code',
+  'id_token',
+  'key',
+  'password',
+  'private_key',
+  'proxy_authorization',
+  'refresh_token',
+  'secret',
+  'set_cookie',
+  'token',
+  'x_api_key',
+] as const;
+
+const sensitiveRequestParamKeys = new Set(
+  SENSITIVE_REQUEST_PARAM_KEYS.map(normalizeRequestParamKey),
+);
+
 export function snapshotRequestParams(
   input: RequestParamsSnapshotInput,
 ): RequestParamDefaults | null {
@@ -52,12 +83,30 @@ export function snapshotRequestParams(
     }
   }
 
-  const effective = addSpeclessKnobs(
-    omitProviderInapplicableParams(out, orderedSpecs),
-    body,
-    orderedSpecs,
+  const effective = omitSensitiveRequestParams(
+    addSpeclessKnobs(omitProviderInapplicableParams(out, orderedSpecs), body, orderedSpecs),
   );
   return Object.keys(effective).length > 0 ? effective : null;
+}
+
+/** Remove credential-bearing keys from a request-parameter value before storage. */
+export function omitSensitiveRequestParams<T extends RequestParamDefaults>(values: T): T {
+  return omitSensitiveValue(values) as T;
+}
+
+function omitSensitiveValue(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(omitSensitiveValue);
+  if (!isRecord(value)) return value;
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !sensitiveRequestParamKeys.has(normalizeRequestParamKey(key)))
+      .map(([key, nested]) => [key, omitSensitiveValue(nested as JsonValue)]),
+  );
+}
+
+function normalizeRequestParamKey(key: string): string {
+  return key.toLowerCase().replaceAll(/[-_]/g, '');
 }
 
 function requestBodyValue(
@@ -137,6 +186,16 @@ function addSpeclessKnobs(
   specs: readonly ProviderParamSpec[],
 ): RequestParamDefaults {
   const specRoots = new Set(specs.map((spec) => spec.path.split('.')[0]));
+  if (specs.some(isReasoningEffortSpec)) {
+    for (const path of [
+      'reasoning.effort',
+      'reasoning_effort',
+      'reasoningEffort',
+      'generationConfig.thinkingConfig.thinkingLevel',
+    ]) {
+      specRoots.add(path.split('.')[0]);
+    }
+  }
   let out = effective;
   for (const [key, value] of Object.entries(body)) {
     if (specRoots.has(key) || NON_KNOB_KEYS.has(key)) continue;

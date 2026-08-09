@@ -211,6 +211,24 @@ describe('ModelAliasService', () => {
     expect(resolveService.resolveForTier).not.toHaveBeenCalled();
   });
 
+  it('does not persist credential keys on direct-alias request params', async () => {
+    await service.create('agent-1', 'tenant-1', {
+      model_id: 'direct-safe',
+      source_kind: 'direct',
+      route: dtoRoute('openai', 'api_key', 'gpt-5'),
+      request_params: {
+        custom_mode: 'strict',
+        api_key: 'test-credential',
+        provider_options: { access_token: 'test-credential', retries: 2 },
+      },
+    });
+
+    expect(rows[0].request_params).toEqual({
+      custom_mode: 'strict',
+      provider_options: { retries: 2 },
+    });
+  });
+
   it('promotes an available direct alias fallback when the primary route is hidden', async () => {
     await service.create('agent-1', 'tenant-1', {
       model_id: 'openai-api/stable',

@@ -77,7 +77,11 @@ export {
 export type { ModelRoute, LegacyOverrideTriple } from './model-route';
 export { applyRequestParamDefaults } from './request-params';
 export type { JsonValue, RequestParamDefaults } from './request-params';
-export { snapshotRequestParams } from './request-params-snapshot';
+export {
+  omitSensitiveRequestParams,
+  SENSITIVE_REQUEST_PARAM_KEYS,
+  snapshotRequestParams,
+} from './request-params-snapshot';
 export type { RequestParamsSnapshotInput } from './request-params-snapshot';
 export {
   compareProviderParamSpecs,

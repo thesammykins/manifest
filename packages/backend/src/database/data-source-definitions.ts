@@ -43,6 +43,7 @@ import { EnableRecordingForNewAgents1801500000000 } from './migrations/180150000
 import { DropLegacyAutofixRolloutColumns1801600000000 } from './migrations/1801600000000-DropLegacyAutofixRolloutColumns';
 import { AddRequestApiMode1801720000000 } from './migrations/1801720000000-AddRequestApiMode';
 import { AddAutofixConsentToInstallMetadata1801900000000 } from './migrations/1801900000000-AddAutofixConsentToInstallMetadata';
+import { RedactRequestParamSecrets1802000000000 } from './migrations/1802000000000-RedactRequestParamSecrets';
 import { AddCredentialSelectionAndOAuthLabels1801700000000 } from './migrations/1801700000000-AddCredentialSelectionAndOAuthLabels';
 import { AddExposedModelRoutes1795200000000 } from './migrations/1795200000000-AddExposedModelRoutes';
 import { InitialSchema1771464895790 } from './migrations/1771464895790-InitialSchema';
@@ -328,4 +329,5 @@ export const migrations = [
   AddCredentialSelectionAndOAuthLabels1801700000000,
   AddRequestApiMode1801720000000,
   AddAutofixConsentToInstallMetadata1801900000000,
+  RedactRequestParamSecrets1802000000000,
 ];

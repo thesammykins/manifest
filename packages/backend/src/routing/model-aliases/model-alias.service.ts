@@ -11,6 +11,7 @@ import {
   isModelRoute,
   isModelRouteArray,
   isResponseMode,
+  omitSensitiveRequestParams,
   setProviderParamValue,
   type AuthType,
   type CredentialSelectionMode,
@@ -631,7 +632,8 @@ function normalizeRoute(route: ModelRoute): ModelRoute {
 
 function normalizeRequestParams(value: unknown): RequestParamDefaults | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as RequestParamDefaults;
+  const params = omitSensitiveRequestParams(value as RequestParamDefaults);
+  return Object.keys(params).length > 0 ? params : null;
 }
 
 function normalizeCredentialMode(value: unknown): CredentialSelectionMode | null {

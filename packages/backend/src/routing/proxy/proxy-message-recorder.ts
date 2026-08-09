@@ -7,6 +7,7 @@ import {
   deriveAutofixStatus,
   FAILED_STATUS,
   normalizeStatus,
+  omitSensitiveRequestParams,
   CANCELLED_STATUS,
   PENDING_STATUS,
   type RequestParamDefaults,
@@ -380,11 +381,19 @@ function buildRequestRow(
     api_mode: apiMode ?? null,
     caller_attribution: attempt.caller_attribution ?? null,
     request_headers: attempt.request_headers ?? null,
-    request_params: attempt.request_params ?? null,
+    request_params: storedRequestParams(attempt.request_params),
     feedback_rating: attempt.feedback_rating ?? null,
     feedback_tags: attempt.feedback_tags ?? null,
     feedback_details: attempt.feedback_details ?? null,
   };
+}
+
+function storedRequestParams(
+  params: RequestParamDefaults | object | null | undefined,
+): RequestParamDefaults | null {
+  if (!params || Array.isArray(params)) return null;
+  const safe = omitSensitiveRequestParams(params as RequestParamDefaults);
+  return Object.keys(safe).length > 0 ? safe : null;
 }
 
 /**
@@ -712,7 +721,7 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       tenant_provider_id: tenantProviderId ?? null,
       caller_attribution: callerAttribution ?? null,
       request_headers: requestHeaders ?? null,
-      request_params: requestParams ?? null,
+      request_params: storedRequestParams(requestParams),
       header_tier_id: headerTierId ?? null,
       header_tier_name: headerTierName ?? null,
       header_tier_color: headerTierColor ?? null,
@@ -910,7 +919,7 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
           provider_key_label: f.keyLabel ?? providerKeyLabel ?? null,
           caller_attribution: callerAttribution ?? null,
           request_headers: requestHeaders ?? null,
-          request_params: requestParams ?? null,
+          request_params: storedRequestParams(requestParams),
           header_tier_id: headerTierId ?? null,
           header_tier_name: headerTierName ?? null,
           header_tier_color: headerTierColor ?? null,
@@ -1002,7 +1011,7 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       provider_key_label: opts?.providerKeyLabel ?? null,
       caller_attribution: opts?.callerAttribution ?? null,
       request_headers: opts?.requestHeaders ?? null,
-      request_params: opts?.requestParams ?? null,
+      request_params: storedRequestParams(opts?.requestParams),
       header_tier_id: opts?.headerTierId ?? null,
       header_tier_name: opts?.headerTierName ?? null,
       header_tier_color: opts?.headerTierColor ?? null,
@@ -1106,7 +1115,7 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       tenant_provider_id: tenantProviderId ?? null,
       caller_attribution: callerAttribution ?? null,
       request_headers: requestHeaders ?? null,
-      request_params: requestParams ?? null,
+      request_params: storedRequestParams(requestParams),
       header_tier_id: headerTierId ?? null,
       header_tier_name: headerTierName ?? null,
       header_tier_color: headerTierColor ?? null,
@@ -1191,7 +1200,7 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       duration_ms: durationMs ?? null,
       caller_attribution: callerAttribution ?? null,
       request_headers: requestHeaders ?? null,
-      request_params: requestParams ?? null,
+      request_params: storedRequestParams(requestParams),
       input_tokens: usage.prompt_tokens,
       output_tokens: usage.completion_tokens,
       cache_read_tokens: usage.cache_read_tokens ?? 0,
@@ -1253,7 +1262,7 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       tenant_provider_id: opts?.tenantProviderId ?? null,
       caller_attribution: opts?.callerAttribution ?? null,
       request_headers: opts?.requestHeaders ?? null,
-      request_params: opts?.requestParams ?? null,
+      request_params: storedRequestParams(opts?.requestParams),
       header_tier_id: opts?.headerTierId ?? null,
       header_tier_name: opts?.headerTierName ?? null,
       header_tier_color: opts?.headerTierColor ?? null,

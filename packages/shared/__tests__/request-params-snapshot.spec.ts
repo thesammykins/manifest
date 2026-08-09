@@ -211,6 +211,28 @@ describe('snapshotRequestParams', () => {
     ).toEqual({ verbosity: 'high' });
   });
 
+  it('keeps unknown safe knobs while dropping credential keys at every depth', () => {
+    expect(
+      snapshotRequestParams({
+        body: {
+          messages: [],
+          custom_mode: 'strict',
+          apiKey: 'test-credential',
+          provider_options: {
+            access_token: 'test-credential',
+            retries: 2,
+            nested: { client_secret: 'test-credential', mode: 'fast' },
+          },
+        },
+        modelParams: null,
+        specs: [],
+      }),
+    ).toEqual({
+      custom_mode: 'strict',
+      provider_options: { retries: 2, nested: { mode: 'fast' } },
+    });
+  });
+
   it('omits conflicted defaults from the snapshot', () => {
     expect(
       snapshotRequestParams({

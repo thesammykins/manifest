@@ -2144,6 +2144,20 @@ describe('ProxyMessageRecorder', () => {
       await recorder.recordProviderError(ctx, 500, 'oops', { requestParams: future });
       expect(insertMock.mock.calls[0][0]).toMatchObject({ request_params: future });
     });
+
+    it('drops credential keys before persisting requestParams', async () => {
+      await recorder.recordProviderError(ctx, 500, 'oops', {
+        requestParams: {
+          custom_mode: 'strict',
+          api_key: 'test-credential',
+          provider_options: { refresh_token: 'test-credential', retries: 2 },
+        },
+      });
+
+      expect(insertMock.mock.calls[0][0]).toMatchObject({
+        request_params: { custom_mode: 'strict', provider_options: { retries: 2 } },
+      });
+    });
   });
 });
 
