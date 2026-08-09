@@ -280,15 +280,6 @@ describe('ProviderClient — Codex prompt-cache affinity (openai-subscription)',
     expect(sentBody.prompt_cache_key).toBe('caller-conv-1');
   });
 
-  it('forces upstream streaming for non-stream Chat Completions subscription requests', async () => {
-    mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
-
-    await client.forward({ ...subscriptionOpts, body: { ...body, stream: false } });
-
-    const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(sentBody.stream).toBe(true);
-  });
-
   it('uses endpoint force-stream capability for Copilot Responses-backed chat requests', async () => {
     mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
 

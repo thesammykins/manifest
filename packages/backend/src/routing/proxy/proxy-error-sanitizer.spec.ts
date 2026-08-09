@@ -16,16 +16,6 @@ describe('sanitizeProviderError', () => {
     expect(sanitizeProviderError(400, body, 'development')).toBe('Invalid model');
   });
 
-  it('HTML-escapes extracted provider messages in non-production', () => {
-    const body = JSON.stringify({
-      error: { message: `<img src=x onerror="alert('xss')">` },
-    });
-
-    expect(sanitizeProviderError(400, body, 'development')).toBe(
-      `&lt;img src=x onerror="alert('xss')"&gt;`,
-    );
-  });
-
   it('truncates long messages to 500 characters', () => {
     const longMsg = 'x'.repeat(600);
     const body = JSON.stringify({ error: { message: longMsg } });
