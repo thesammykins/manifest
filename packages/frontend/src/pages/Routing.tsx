@@ -13,7 +13,7 @@ import RoutingModals from '../components/RoutingModals.js';
 import { buildPipelineHelp } from '../components/RoutingPipelineCard.js';
 import RoutingTabs from '../components/RoutingTabs.js';
 import ResponseModeModal from '../components/ResponseModeModal.js';
-import ModelAliasesPanel from '../components/ModelAliasesPanel.js';
+import ModelAliasesPanel, { type VariantCreationResult } from '../components/ModelAliasesPanel.js';
 import ProviderModelExposurePanel from '../components/ProviderModelExposurePanel.js';
 import { toast } from '../services/toast-store.js';
 import { agentDisplayName } from '../services/agent-display-name.js';
@@ -267,6 +267,31 @@ const Routing: Component = () => {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to add model alias');
     }
+  };
+
+  const handleCreateAliasVariants = async (
+    inputs: CreateModelAliasInput[],
+  ): Promise<VariantCreationResult> => {
+    const result: VariantCreationResult = { createdIds: [], failedIds: [] };
+
+    for (const input of inputs) {
+      try {
+        const created = await createModelAlias(agentName(), input);
+        mutateModelAliases((prev) => [...(prev ?? []), created]);
+        result.createdIds.push(created.model_id);
+      } catch {
+        result.failedIds.push(input.model_id);
+      }
+    }
+
+    if (result.failedIds.length === 0) {
+      toast.success(`Exposed ${result.createdIds.length} reasoning variants`);
+    } else {
+      toast.error(
+        `Exposed ${result.createdIds.length} reasoning variants; ${result.failedIds.length} failed`,
+      );
+    }
+    return result;
   };
 
   const handleUpdateAlias = async (id: string, patch: UpdateModelAliasInput) => {
@@ -1027,6 +1052,7 @@ const Routing: Component = () => {
             onUpdate={handleUpdateAlias}
             onToggle={handleToggleAlias}
             onDelete={handleDeleteAlias}
+            onCreateVariants={handleCreateAliasVariants}
             getParamSpecs={(route) =>
               getModelParamSpecs(agentName(), route.provider, route.authType, route.model)
             }

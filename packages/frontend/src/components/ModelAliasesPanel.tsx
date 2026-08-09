@@ -33,7 +33,13 @@ interface Props {
   onUpdate: (id: string, patch: UpdateModelAliasInput) => Promise<void>;
   onToggle: (id: string, enabled: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onCreateVariants: (inputs: CreateModelAliasInput[]) => Promise<VariantCreationResult>;
   getParamSpecs?: (route: ModelRoute) => Promise<readonly ProviderParamSpec[]>;
+}
+
+export interface VariantCreationResult {
+  createdIds: string[];
+  failedIds: string[];
 }
 
 const FALLBACK_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
@@ -45,6 +51,7 @@ const ModelAliasesPanel: Component<Props> = (props) => {
   const [reasoningEffort, setReasoningEffort] = createSignal('');
   const [creating, setCreating] = createSignal(false);
   const [creatingVariants, setCreatingVariants] = createSignal(false);
+  const [variantResult, setVariantResult] = createSignal<VariantCreationResult | null>(null);
 
   const routeOptions = createMemo<DirectRouteOption[]>(() =>
     props.models
@@ -118,18 +125,21 @@ const ModelAliasesPanel: Component<Props> = (props) => {
     if (!option || !baseId) return;
     const efforts = reasoningEfforts().filter((effort) => effort !== '');
     if (efforts.length === 0) return;
+    const inputs = efforts.map((effort) => ({
+      model_id: `${baseId}-${effort}`,
+      display_name: `${displayName().trim() || option.route.model} ${effort}`,
+      source_kind: 'direct' as const,
+      route: option.route,
+      request_params: reasoningParams(option.route, effort, selectedSpecs() ?? []),
+      response_mode: 'buffered' as const,
+    }));
+
+    setVariantResult(null);
     setCreatingVariants(true);
     try {
-      for (const effort of efforts) {
-        await props.onCreate({
-          model_id: `${baseId}-${effort}`,
-          display_name: `${displayName().trim() || option.route.model} ${effort}`,
-          source_kind: 'direct',
-          route: option.route,
-          request_params: reasoningParams(option.route, effort, selectedSpecs() ?? []),
-          response_mode: 'buffered',
-        });
-      }
+      setVariantResult(await props.onCreateVariants(inputs));
+    } catch {
+      setVariantResult({ createdIds: [], failedIds: inputs.map((input) => input.model_id) });
     } finally {
       setCreatingVariants(false);
     }
@@ -183,7 +193,7 @@ const ModelAliasesPanel: Component<Props> = (props) => {
         <button
           type="button"
           class="btn btn--primary btn--sm"
-          disabled={creating() || !selectedOption() || !modelId().trim()}
+          disabled={creating() || creatingVariants() || !selectedOption() || !modelId().trim()}
           onClick={createAlias}
         >
           {creating() ? 'Adding...' : 'Add alias'}
@@ -193,6 +203,7 @@ const ModelAliasesPanel: Component<Props> = (props) => {
           class="btn btn--outline btn--sm"
           disabled={
             creatingVariants() ||
+            creating() ||
             selectedSpecs.loading ||
             !selectedOption() ||
             !modelId().trim() ||
@@ -203,6 +214,10 @@ const ModelAliasesPanel: Component<Props> = (props) => {
           {creatingVariants() ? 'Adding...' : 'Expose variants'}
         </button>
       </div>
+
+      <Show when={variantResult()} keyed>
+        {(result) => <VariantStatus result={result} />}
+      </Show>
 
       <Show
         when={props.aliases.length > 0}
@@ -225,6 +240,22 @@ const ModelAliasesPanel: Component<Props> = (props) => {
     </section>
   );
 };
+
+const VariantStatus: Component<{ result: VariantCreationResult }> = (props) => (
+  <div
+    class="model-aliases-panel__variant-status"
+    classList={{ 'model-aliases-panel__variant-status--error': props.result.failedIds.length > 0 }}
+    role="status"
+    aria-live="polite"
+  >
+    <Show when={props.result.createdIds.length > 0}>
+      <span>Created: {props.result.createdIds.join(', ')}. </span>
+    </Show>
+    <Show when={props.result.failedIds.length > 0}>
+      <span>Failed: {props.result.failedIds.join(', ')}.</span>
+    </Show>
+  </div>
+);
 
 const ModelAliasRow: Component<{
   alias: ModelAlias;

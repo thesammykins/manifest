@@ -9,6 +9,8 @@ import type {
   UpdateModelAliasInput,
 } from '../../src/services/api.js';
 
+const successfulVariantCreate = vi.fn().mockResolvedValue({ createdIds: [], failedIds: [] });
+
 function model(route: ModelRoute, displayName = route.model): AvailableModel {
   return {
     model_name: route.model,
@@ -47,6 +49,7 @@ describe('ModelAliasesPanel', () => {
         onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
+        onCreateVariants={successfulVariantCreate}
       />
     ));
 
@@ -77,6 +80,7 @@ describe('ModelAliasesPanel', () => {
         onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
+        onCreateVariants={successfulVariantCreate}
       />
     ));
 
@@ -126,6 +130,7 @@ describe('ModelAliasesPanel', () => {
         onUpdate={onUpdate}
         onToggle={onToggle}
         onDelete={onDelete}
+        onCreateVariants={successfulVariantCreate}
       />
     ));
 
@@ -184,6 +189,7 @@ describe('ModelAliasesPanel', () => {
         onUpdate={onUpdate}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
+        onCreateVariants={successfulVariantCreate}
       />
     ));
 
@@ -200,16 +206,20 @@ describe('ModelAliasesPanel', () => {
     });
   });
 
-  it('bulk-creates reasoning variants from provider param specs', async () => {
-    const onCreate = vi.fn<(_: CreateModelAliasInput) => Promise<void>>().mockResolvedValue();
+  it('reports every created variant after a successful bulk create', async () => {
+    const onCreateVariants = vi.fn().mockResolvedValue({
+      createdIds: ['openai-api/gpt-5-low', 'openai-api/gpt-5-high'],
+      failedIds: [],
+    });
     render(() => (
       <ModelAliasesPanel
         aliases={[]}
         models={[model({ provider: 'openai', authType: 'api_key', model: 'gpt-5' })]}
-        onCreate={onCreate}
+        onCreate={vi.fn<(_: CreateModelAliasInput) => Promise<void>>()}
         onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
+        onCreateVariants={onCreateVariants}
         getParamSpecs={async () => [
           {
             provider: 'openai',
@@ -233,21 +243,92 @@ describe('ModelAliasesPanel', () => {
     fireEvent.click(screen.getByText('Expose variants'));
 
     await waitFor(() => {
-      expect(onCreate).toHaveBeenCalledTimes(2);
+      expect(onCreateVariants).toHaveBeenCalledTimes(1);
     });
-    expect(onCreate).toHaveBeenNthCalledWith(
-      1,
+    expect(onCreateVariants).toHaveBeenCalledWith([
       expect.objectContaining({
         model_id: 'openai-api/gpt-5-low',
         request_params: { reasoning_effort: 'low' },
       }),
-    );
-    expect(onCreate).toHaveBeenNthCalledWith(
-      2,
       expect.objectContaining({
         model_id: 'openai-api/gpt-5-high',
         request_params: { reasoning_effort: 'high' },
       }),
+    ]);
+    expect((await screen.findByRole('status')).textContent?.trim()).toBe(
+      'Created: openai-api/gpt-5-low, openai-api/gpt-5-high.',
     );
   });
+
+  it('reports a duplicate middle variant without hiding later successes', async () => {
+    const onCreateVariants = vi.fn().mockResolvedValue({
+      createdIds: ['openai-api/gpt-5-low', 'openai-api/gpt-5-high'],
+      failedIds: ['openai-api/gpt-5-medium'],
+    });
+    render(() => (
+      <ModelAliasesPanel
+        aliases={[]}
+        models={[model({ provider: 'openai', authType: 'api_key', model: 'gpt-5' })]}
+        onCreate={vi.fn<(_: CreateModelAliasInput) => Promise<void>>()}
+        onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
+        onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
+        onDelete={vi.fn<(_: string) => Promise<void>>()}
+        onCreateVariants={onCreateVariants}
+        getParamSpecs={async () => [reasoningSpec(['low', 'medium', 'high'])]}
+      />
+    ));
+
+    await screen.findByDisplayValue('openai-api/gpt-5');
+    const expose = screen.getByText('Expose variants') as HTMLButtonElement;
+    await waitFor(() => expect(expose.disabled).toBe(false));
+    fireEvent.click(expose);
+
+    expect((await screen.findByRole('status')).textContent).toBe(
+      'Created: openai-api/gpt-5-low, openai-api/gpt-5-high. Failed: openai-api/gpt-5-medium.',
+    );
+  });
+
+  it('reports network failures and prevents double-submit while creating variants', async () => {
+    let fail: ((reason?: unknown) => void) | undefined;
+    const onCreateVariants = vi.fn(
+      () =>
+        new Promise<{ createdIds: string[]; failedIds: string[] }>((_, reject) => (fail = reject)),
+    );
+    render(() => (
+      <ModelAliasesPanel
+        aliases={[]}
+        models={[model({ provider: 'openai', authType: 'api_key', model: 'gpt-5' })]}
+        onCreate={vi.fn<(_: CreateModelAliasInput) => Promise<void>>()}
+        onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
+        onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
+        onDelete={vi.fn<(_: string) => Promise<void>>()}
+        onCreateVariants={onCreateVariants}
+        getParamSpecs={async () => [reasoningSpec(['low'])]}
+      />
+    ));
+
+    const expose = screen.getByText('Expose variants') as HTMLButtonElement;
+    await waitFor(() => expect(expose.disabled).toBe(false));
+    fireEvent.click(expose);
+    fireEvent.click(expose);
+    expect(onCreateVariants).toHaveBeenCalledTimes(1);
+    expect((screen.getByText('Add alias') as HTMLButtonElement).disabled).toBe(true);
+
+    fail?.(new Error('Network unavailable'));
+    expect((await screen.findByRole('status')).textContent).toBe('Failed: openai-api/gpt-5-low.');
+  });
 });
+
+function reasoningSpec(values: string[]) {
+  return {
+    provider: 'openai',
+    authType: 'api_key' as const,
+    model: 'gpt-5',
+    path: 'reasoning_effort',
+    type: 'enum' as const,
+    label: 'Reasoning effort',
+    description: '',
+    group: 'reasoning' as const,
+    values,
+  };
+}
