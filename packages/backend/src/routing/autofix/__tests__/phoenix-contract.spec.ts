@@ -4,7 +4,7 @@ import Ajv2020 from 'ajv/dist/2020';
 import type { ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import { load } from 'js-yaml';
-import { AGENT_PLATFORMS } from 'manifest-shared';
+import { AGENT_PLATFORMS, coerceAgentPlatform } from 'manifest-shared';
 import { HEAL_STATUSES, ISSUE_STATUSES, OUTCOME_STATUSES } from '../phoenix.types';
 
 /**
@@ -20,6 +20,7 @@ import { HEAL_STATUSES, ISSUE_STATUSES, OUTCOME_STATUSES } from '../phoenix.type
 const SPEC_PATH = join(__dirname, '..', 'contract', 'phoenix-openapi.yaml');
 
 interface SchemaObject {
+  description?: string;
   properties?: Record<string, { enum?: string[] }>;
 }
 interface OpenApiDoc {
@@ -27,7 +28,7 @@ interface OpenApiDoc {
   paths: Record<string, Record<string, { security?: Array<Record<string, unknown[]>> }>>;
   components: {
     schemas: Record<string, SchemaObject>;
-    parameters: Record<string, { schema?: { enum?: string[] } }>;
+    parameters: Record<string, { description?: string; schema?: { enum?: string[] } }>;
     securitySchemes: Record<string, unknown>;
   };
 }
@@ -140,8 +141,21 @@ describe('Phoenix wire contract (vendored OpenAPI)', () => {
       expect(scheme.name).toBe('X-Manifest-Instance');
     });
 
-    it('keeps the harness header allowlist in lockstep with AGENT_PLATFORMS', () => {
-      expect(doc.components.parameters.ManifestHarness.schema?.enum).toEqual([...AGENT_PLATFORMS]);
+    it('keeps the harness header allowlist compatible with AGENT_PLATFORMS', () => {
+      const harnesses = doc.components.parameters.ManifestHarness.schema?.enum ?? [];
+      expect(harnesses).toContain('other');
+      expect(harnesses.every((harness) => AGENT_PLATFORMS.includes(harness as never))).toBe(true);
+    });
+
+    it('coerces missing and unknown harness values to other', () => {
+      expect(coerceAgentPlatform(undefined)).toBe('other');
+      expect(coerceAgentPlatform('future-harness')).toBe('other');
+    });
+
+    it('documents compatibility fallback for omitted and future harnesses', () => {
+      expect(doc.components.parameters.ManifestHarness.description).toContain(
+        'Missing or unknown values become `other`',
+      );
     });
   });
 

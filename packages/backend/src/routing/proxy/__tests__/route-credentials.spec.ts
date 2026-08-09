@@ -194,6 +194,34 @@ describe('route-credentials', () => {
       });
     });
 
+    it('uses the selected connection label when a requested pin is stale', async () => {
+      providerKeyService.selectProviderKey.mockResolvedValue({
+        apiKey: 'sk-default',
+        id: 'default-id',
+        region: null,
+        label: 'Default',
+        priority: 0,
+      });
+
+      const result = await resolveRouteCredentials(
+        { providerKeyService, oauth },
+        {
+          agentId: 'a1',
+          tenantId: 't1',
+          provider: 'openai',
+          authType: 'api_key',
+          providerKeyLabel: 'Retired',
+          credentialMode: 'pinned',
+        },
+      );
+
+      expect(result).toMatchObject({
+        ok: true,
+        tenantProviderId: 'default-id',
+        keyLabel: 'Default',
+      });
+    });
+
     it('tries the next same-provider subscription credential after an unusable one', async () => {
       const candidateService = providerKeyService as typeof providerKeyService & {
         getProviderKeyCandidates: jest.Mock;

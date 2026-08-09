@@ -1533,7 +1533,7 @@ describe('ProxyService — orchestration', () => {
       expect(result.meta.request_params).toBeNull();
     });
 
-    it('snapshots native Responses reasoning effort from the inbound body', async () => {
+    it('snapshots native Responses reasoning effort under the canonical MPS key', async () => {
       modelAliasService.resolveModelRequest.mockResolvedValue({
         kind: 'resolved',
         resolved: {
@@ -1566,10 +1566,10 @@ describe('ProxyService — orchestration', () => {
         }),
       );
 
-      expect(result.meta.request_params).toEqual({
-        reasoning_effort: 'high',
-        reasoning: { effort: 'high', summary: 'auto' },
-      });
+      // The native `reasoning` object remains on the Responses wire body, but
+      // telemetry records its effort once under the provider's canonical MPS
+      // knob instead of duplicating the same control in two shapes.
+      expect(result.meta.request_params).toEqual({ reasoning_effort: 'high' });
     });
 
     it('falls back to legacy raw direct ids only after canonical lookup misses', async () => {

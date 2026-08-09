@@ -251,8 +251,14 @@ export async function resolveRouteCredentials(
     // An unpinned subscription is temporarily bound to the candidate being
     // attempted. This keeps refresh and the post-refresh raw-token reread on
     // the same tenant_providers row without mutating the route itself.
+    // A requested label can be stale: selectProviderKey then falls back to
+    // the selected candidate. Attribute credentials to that actual row rather
+    // than preserving the dangling request label. Unpinned API-key routes
+    // intentionally remain unlabelled.
     const effectiveLabel =
-      args.providerKeyLabel ?? (authType === 'subscription' ? key.label : undefined);
+      args.providerKeyLabel && key.label !== args.providerKeyLabel
+        ? key.label
+        : (args.providerKeyLabel ?? (authType === 'subscription' ? key.label : undefined));
     const unwrapped = await resolveApiKey(
       provider,
       key.apiKey,

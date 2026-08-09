@@ -482,6 +482,35 @@ describe('ProxyFallbackService', () => {
       );
     });
 
+    it('does not walk same-provider alternates for a pinned subscription route', async () => {
+      providerClient.forward.mockResolvedValue({
+        response: new Response('unauthorized', { status: 401 }),
+        isGoogle: false,
+        isAnthropic: false,
+        isChatGpt: true,
+      });
+
+      const result = await service.tryForwardToProvider({
+        provider: 'openai',
+        apiKey: 'default-token',
+        rawApiKey: 'default-token',
+        providerKeyLabel: 'Default',
+        credentialAlternates: ['Backup'],
+        credentialMode: 'pinned',
+        tenantProviderId: 'default-id',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        model: 'gpt-5.3-codex',
+        body,
+        stream: false,
+        sessionKey: 'sess-1',
+        authType: 'subscription',
+      });
+
+      expect(result.response.status).toBe(401);
+      expect(providerClient.forward).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps the original rejected-token response readable when refresh cannot recover', async () => {
       const errorBody = 'unauthorized';
       providerClient.forward.mockResolvedValue({
