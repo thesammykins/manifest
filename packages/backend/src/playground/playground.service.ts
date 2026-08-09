@@ -490,6 +490,9 @@ export class PlaygroundService {
           error_origin: null,
           error_class: null,
           requested_model: dto.model,
+          // The Playground calls a provider directly; it never enters through
+          // one of the proxy's public API surfaces.
+          api_mode: null,
           caller_attribution: null,
           request_headers: null,
           request_params: null,
@@ -565,6 +568,9 @@ export class PlaygroundService {
           error_origin: errorOrigin,
           error_class: null,
           requested_model: dto.model,
+          // The Playground calls a provider directly; it never enters through
+          // one of the proxy's public API surfaces.
+          api_mode: null,
           caller_attribution: null,
           request_headers: null,
           request_params: null,

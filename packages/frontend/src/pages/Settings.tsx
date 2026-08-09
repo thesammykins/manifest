@@ -232,7 +232,7 @@ const Settings: Component = () => {
         </div>
       </div>
 
-      {/* -- Auto-fix ---------------------------------- */}
+      {/* -- Autofix ---------------------------------- */}
       <SettingsAutofixSection agentName={agentName} />
 
       {/* -- Message recording ------------------------- */}

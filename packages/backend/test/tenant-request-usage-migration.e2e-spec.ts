@@ -1,15 +1,32 @@
 import { DataSource } from 'typeorm';
 import { AddTenantRequestUsage1801300000000 } from '../src/database/migrations/1801300000000-AddTenantRequestUsage';
 import { PlanService } from '../src/billing/plan.service';
-import { REQUEST_USAGE_CUTOVER_STATE } from '../src/billing/request-quota-window';
-import { toSqlTimestamp } from '../src/common/utils/postgres-sql';
+import { REQUEST_QUOTA_RESET_AT_ENV } from '../src/billing/request-quota-window';
+import { toLocalSqlTimestamp, toSqlTimestamp } from '../src/common/utils/postgres-sql';
 
 const TENANT = 'usage-tenant';
 const AGENT = 'usage-agent';
 const PLAYGROUND = 'usage-playground';
-const WINDOW_START = toSqlTimestamp(new Date('2026-07-09T09:06:52Z'));
-const REQUEST_TIMESTAMP = '2026-07-20 12:00:00';
-const TEST_CUTOVER_TIMESTAMP = '2026-07-21 00:00:00';
+
+// A tenant's quota window is `GREATEST(date_trunc('month', row_timestamp),
+// PLAN_REQUEST_QUOTA_RESET_AT)` — see the trigger in the migration and
+// `requestQuotaWindowStartMs()`. The shipped reset default (2026-07-09) only
+// *is* that window while the clock sits inside July 2026: from 2026-08-01 on,
+// the trigger buckets live rows into the calendar-month window while a fixture
+// pinned to the reset instant keeps reading the July row, so every "live"
+// assertion silently saw only the historical baseline. Anchor the whole fixture
+// to a reset instant inside the current window instead, so these tests pin the
+// counter's behaviour rather than the month they were written in.
+const NOW_MS = Date.now();
+const NOW = new Date(NOW_MS);
+const MONTH_START_MS = Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), 1);
+// Clamped to the month start so the reset never precedes the calendar window it
+// is meant to dominate (otherwise `GREATEST` would pick the month start back).
+const RESET_AT_MS = Math.max(NOW_MS - 2 * 60 * 60 * 1000, MONTH_START_MS);
+const WINDOW_START = toSqlTimestamp(new Date(RESET_AT_MS));
+// Historical fixture rows: inside the quota window, before the cutover the
+// migration stamps with `clock_timestamp()` when it runs.
+const REQUEST_TIMESTAMP = toLocalSqlTimestamp(new Date((RESET_AT_MS + NOW_MS) / 2));
 let afterCutoverTimestamp: string;
 let futureTimestamp: string;
 let futureWindow: string;
@@ -91,10 +108,15 @@ async function usageRow(
 describe('AddTenantRequestUsage migration (e2e)', () => {
   let ds: DataSource;
   let originalManifestMode: string | undefined;
+  let originalQuotaResetAt: string | undefined;
 
   beforeAll(async () => {
     originalManifestMode = process.env['MANIFEST_MODE'];
     process.env['MANIFEST_MODE'] = 'cloud';
+    // Must be set before the migration runs: `up()` reads it to build the
+    // trigger's window expression.
+    originalQuotaResetAt = process.env[REQUEST_QUOTA_RESET_AT_ENV];
+    process.env[REQUEST_QUOTA_RESET_AT_ENV] = new Date(RESET_AT_MS).toISOString();
     ds = new DataSource({
       type: 'postgres',
       url:
@@ -133,16 +155,6 @@ describe('AddTenantRequestUsage migration (e2e)', () => {
     await insertAttempt(ds, 'seed-manifest-rejection', { errorOrigin: 'policy' });
 
     await runMigration(ds, 'up');
-    // Keep the fixtures in one quota month even when the suite runs after the
-    // current calendar month rolls over. The migration still publishes the
-    // real trigger and cutover metadata before the deterministic test clock
-    // is applied.
-    await ds.query(
-      `UPDATE "backfill_state"
-          SET "completed_at" = $1
-        WHERE "name" = $2`,
-      [TEST_CUTOVER_TIMESTAMP, REQUEST_USAGE_CUTOVER_STATE],
-    );
     const cutoverTimes = await ds.query(
       `SELECT
          to_char(
@@ -178,6 +190,11 @@ describe('AddTenantRequestUsage migration (e2e)', () => {
       delete process.env['MANIFEST_MODE'];
     } else {
       process.env['MANIFEST_MODE'] = originalManifestMode;
+    }
+    if (originalQuotaResetAt === undefined) {
+      delete process.env[REQUEST_QUOTA_RESET_AT_ENV];
+    } else {
+      process.env[REQUEST_QUOTA_RESET_AT_ENV] = originalQuotaResetAt;
     }
   });
 
@@ -231,7 +248,7 @@ describe('AddTenantRequestUsage migration (e2e)', () => {
 
     // The hot path returns the live counter immediately (no row yet → 0) and
     // schedules the one-shot historical baseline off the request path.
-    expect(await planService.countRequestsSince(TENANT, Date.UTC(2026, 6, 1))).toBe(0);
+    expect(await planService.countRequestsSince(TENANT, MONTH_START_MS)).toBe(0);
 
     // The background init lands the exact baseline and flips the flag.
     const deadline = Date.now() + 10_000;
@@ -243,7 +260,7 @@ describe('AddTenantRequestUsage migration (e2e)', () => {
     expect(row).toEqual({ count: 2, initialized: true });
 
     // Steady state: subsequent reads serve the initialized counter directly.
-    expect(await planService.countRequestsSince(TENANT, Date.UTC(2026, 6, 1))).toBe(2);
+    expect(await planService.countRequestsSince(TENANT, MONTH_START_MS)).toBe(2);
     expect(await usageRow(ds)).toEqual({ count: 2, initialized: true });
   });
 

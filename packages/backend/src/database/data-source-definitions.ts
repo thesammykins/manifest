@@ -24,22 +24,22 @@ import { PlaygroundRun } from '../entities/playground-run.entity';
 import { PlaygroundColumn } from '../entities/playground-column.entity';
 import { ReasoningContentCacheEntry } from '../entities/reasoning-content-cache-entry.entity';
 import { AgentEnabledProvider } from '../entities/agent-enabled-provider.entity';
-import { ExposedModelRoute } from '../entities/exposed-model-route.entity';
 import { PublicErrorPage } from '../entities/public-error-page.entity';
-import { AgentModelFilter } from '../entities/agent-model-filter.entity';
 import { WaitlistClaim } from '../entities/waitlist-claim.entity';
 import { TenantRequestUsage } from '../entities/tenant-request-usage.entity';
 import { RenameWaitlistClaimsTable1800000000000 } from './migrations/1800000000000-RenameWaitlistClaimsTable';
 import { ReclassifyPlanRequestLimitMessages1800100000000 } from './migrations/1800100000000-ReclassifyPlanRequestLimitMessages';
 import { AddMessageErrorCode1800200000000 } from './migrations/1800200000000-AddMessageErrorCode';
 import { DropUnusedAgentMessageIndexes1800300000000 } from './migrations/1800300000000-DropUnusedAgentMessageIndexes';
-import { AddAgentModelFilters1800400000000 } from './migrations/1800400000000-AddAgentModelFilters';
 import { ExtendDashboardCoveringIndex1801200000000 } from './migrations/1801200000000-ExtendDashboardCoveringIndex';
+
 import { AddTenantRequestUsage1801300000000 } from './migrations/1801300000000-AddTenantRequestUsage';
 import { AddRequestRecordings1801300000000 } from './migrations/1801300000000-AddRequestRecordings';
 import { MoveRecordingsToProviderAttempts1801400000000 } from './migrations/1801400000000-MoveRecordingsToProviderAttempts';
 import { EnableRecordingForNewAgents1801500000000 } from './migrations/1801500000000-EnableRecordingForNewAgents';
 import { DropLegacyAutofixRolloutColumns1801600000000 } from './migrations/1801600000000-DropLegacyAutofixRolloutColumns';
+import { AddRequestApiMode1801720000000 } from './migrations/1801720000000-AddRequestApiMode';
+import { AddAutofixConsentToInstallMetadata1801900000000 } from './migrations/1801900000000-AddAutofixConsentToInstallMetadata';
 import { AddCredentialSelectionAndOAuthLabels1801700000000 } from './migrations/1801700000000-AddCredentialSelectionAndOAuthLabels';
 import { InitialSchema1771464895790 } from './migrations/1771464895790-InitialSchema';
 import { HashApiKeys1771500000000 } from './migrations/1771500000000-HashApiKeys';
@@ -144,9 +144,8 @@ import { AddTenantProviderValueIndex1793000000000 } from './migrations/179300000
 import { DropRedundantTenantAgentNameIndex1793100000000 } from './migrations/1793100000000-DropRedundantTenantAgentNameIndex';
 import { AddDashboardCoveringIndex1793200000000 } from './migrations/1793200000000-AddDashboardCoveringIndex';
 import { AddCrossTenantErrorTimestampIndex1795100000000 } from './migrations/1795100000000-AddCrossTenantErrorTimestampIndex';
-import { AddExposedModelRoutes1795200000000 } from './migrations/1795200000000-AddExposedModelRoutes';
-import { AddAutofixWaitlist1796000000000 } from './migrations/1796000000000-AddAutofixWaitlist';
 import { RemoveMessageRecording1795000000000 } from './migrations/1795000000000-RemoveMessageRecording';
+import { AddAutofixWaitlist1796000000000 } from './migrations/1796000000000-AddAutofixWaitlist';
 import { AddPublicErrorPages1797000000000 } from './migrations/1797000000000-AddPublicErrorPages';
 import { AddErrorClassification1798000000000 } from './migrations/1798000000000-AddErrorClassification';
 import { AddTenantLimitOverrides1798100000000 } from './migrations/1798100000000-AddTenantLimitOverrides';
@@ -182,10 +181,8 @@ export const entities = [
   PlaygroundColumn,
   ReasoningContentCacheEntry,
   AgentEnabledProvider,
-  ExposedModelRoute,
   BackfillState,
   PublicErrorPage,
-  AgentModelFilter,
   WaitlistClaim,
   TenantRequestUsage,
 ];
@@ -295,7 +292,6 @@ export const migrations = [
   AddDashboardCoveringIndex1793200000000,
   RemoveMessageRecording1795000000000,
   AddCrossTenantErrorTimestampIndex1795100000000,
-  AddExposedModelRoutes1795200000000,
   AddAutofixWaitlist1796000000000,
   AddPublicErrorPages1797000000000,
   AddErrorClassification1798000000000,
@@ -312,14 +308,16 @@ export const migrations = [
   ReclassifyPlanRequestLimitMessages1800100000000,
   AddMessageErrorCode1800200000000,
   DropUnusedAgentMessageIndexes1800300000000,
-  AddAgentModelFilters1800400000000,
   AddRequestsAndProviderAttempts1801000000000,
   AddProviderAttemptOrdering1801100000000,
   ExtendDashboardCoveringIndex1801200000000,
+
   AddTenantRequestUsage1801300000000,
   AddRequestRecordings1801300000000,
   MoveRecordingsToProviderAttempts1801400000000,
   EnableRecordingForNewAgents1801500000000,
   DropLegacyAutofixRolloutColumns1801600000000,
   AddCredentialSelectionAndOAuthLabels1801700000000,
+  AddRequestApiMode1801720000000,
+  AddAutofixConsentToInstallMetadata1801900000000,
 ];

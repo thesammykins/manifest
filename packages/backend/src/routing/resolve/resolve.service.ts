@@ -695,17 +695,42 @@ export class ResolveService {
     return available;
   }
 
-  /**
-   * Keep an unlabelled route unlabelled. The proxy owns credential selection:
-   * an absent label means the route is eligible for same-provider subscription
-   * failover, while an explicit label remains an exact account pin.
-   */
+  private async defaultTierKeyLabel(
+    agentId: string,
+    route: ModelRoute,
+  ): Promise<string | undefined> {
+    const tiers = await this.tierService.getTiers(agentId);
+    const defaultTier = tiers.find((tier) => tier.tier === 'default');
+    const override = defaultTier ? readOverrideRoute(defaultTier) : null;
+    if (!override?.keyLabel) return undefined;
+    if (override.provider.toLowerCase() !== route.provider.toLowerCase()) return undefined;
+    if (override.authType !== route.authType) return undefined;
+    return override.keyLabel;
+  }
+
   private async enrichRouteKeyLabel(
     _agentId: string,
-    _tenantId: string,
+    tenantId: string,
     route: ModelRoute,
   ): Promise<ModelRoute> {
-    return route;
+    if (route.keyLabel || route.authType === 'subscription') return route;
+    const keyLabel = await this.providerKeyService.getDefaultKeyLabel(
+      tenantId,
+      route.provider,
+      route.authType,
+      _agentId,
+    );
+    return keyLabel ? { ...route, keyLabel } : route;
+  }
+
+  async pinRouteKeyLabel(
+    agentId: string,
+    tenantId: string,
+    route: ModelRoute,
+  ): Promise<ModelRoute> {
+    if (route.keyLabel || route.authType === 'subscription') return route;
+    const keyLabel = await this.defaultTierKeyLabel(agentId, route);
+    return keyLabel ? { ...route, keyLabel } : this.enrichRouteKeyLabel(agentId, tenantId, route);
   }
 
   /**

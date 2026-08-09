@@ -46,9 +46,17 @@ export interface ProviderAttemptStart {
   model: string;
   authType?: string;
   tenantProviderId?: string | null;
+  /** Reserve ordering for a Manifest-local route failure without a pending provider-call row. */
+  providerCallStarted?: boolean;
+  /**
+   * Label of the connection serving this attempt. Carried from the start so a
+   * row that never reaches a terminal writer (a cancelled request) still names
+   * the connection it was billed against.
+   */
+  keyLabel?: string;
 }
 
-/** Identity and measured start of one persisted pending Provider Attempt. */
+/** Identity and measured start of one Attempt. */
 export interface ProviderAttemptRef {
   id: string;
   attemptNumber: number;
@@ -141,6 +149,6 @@ export interface ProxyRequestOptions {
   specificityOverride?: string;
   callerAttribution?: CallerAttribution | null;
   headers?: IncomingHttpHeaders;
-  /** Called immediately before Manifest invokes one upstream provider transport. */
+  /** Allocates the next Attempt; local route failures set providerCallStarted=false. */
   startProviderAttempt?: StartProviderAttempt;
 }

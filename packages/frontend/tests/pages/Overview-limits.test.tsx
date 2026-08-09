@@ -59,12 +59,12 @@ vi.mock('../../src/components/ProviderIcon.jsx', () => ({
 // (uPlot) and fetches per-provider timeseries; stub both so jsdom doesn't load
 // the real chart (which calls matchMedia).
 vi.mock('../../src/services/api/analytics.js', () => ({
-  RECOVERED_REQUESTS_TOOLTIP: 'Successful requests that were recovered by Auto-fix or fallback.',
+  RECOVERED_REQUESTS_TOOLTIP: 'Successful requests that were recovered by Autofix or fallback.',
   REQUEST_SUCCESS_RATE_TOOLTIP:
     'Successful requests over all requests. Recovered requests count as successful.',
   totalAttemptsTooltip: (doctor: boolean) =>
     doctor
-      ? 'Every provider call counts here, including fallback retries and auto-fixed attempts. One request can produce several attempts.'
+      ? 'Every provider call counts here, including fallback retries and autofixed attempts. One request can produce several attempts.'
       : 'Every provider call counts here, including fallback retries. One request can produce several attempts.',
   MODEL_SUCCESS_RATE_TOOLTIP: 'Successful attempts over all attempts for this model.',
   PROVIDER_SUCCESS_RATE_TOOLTIP: 'Successful attempts over all attempts for this provider.',
@@ -88,7 +88,7 @@ vi.mock('../../src/services/api/analytics.js', () => ({
       fallbacked_attempts: { value: 0, previous: 0 },
     }),
   getAttemptTimeseries: () => Promise.resolve({ range: '7d', by: 'metric', keys: [], buckets: [] }),
-  getWorkspaceAutofixStatus: () => Promise.resolve({ any_enabled: false, enabled_agents: [] }),
+  getWorkspaceAutofixStatus: () => Promise.resolve({ any_enabled: false, enabled_agents: [], consented: true }),
   getAutofixStats: () => Promise.resolve(null),
   getAutofixTimeseries: () =>
     Promise.resolve({ range: '7d', by: 'disposition', keys: [], buckets: [] }),

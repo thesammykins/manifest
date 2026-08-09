@@ -108,6 +108,7 @@ export function startCredentialFailureAttempt(
     model: string;
     authType?: string;
     tenantProviderId?: string | null;
+    keyLabel?: string;
   },
 ): ProviderAttemptRef | undefined {
   const attempt = startProviderAttempt?.(start);
@@ -124,6 +125,7 @@ export function buildCredentialFailureForward(opts: {
   model: string;
   authType?: AuthType;
   tenantProviderId: string | null;
+  keyLabel?: string;
   presentation: CredentialFailurePresentation;
   startProviderAttempt?: StartProviderAttempt;
 }): ForwardResult {
@@ -132,6 +134,7 @@ export function buildCredentialFailureForward(opts: {
     model: opts.model,
     authType: opts.authType,
     tenantProviderId: opts.tenantProviderId,
+    keyLabel: opts.keyLabel,
   });
   return {
     response: new Response(opts.presentation.errorBody, {
@@ -156,6 +159,7 @@ export function buildCredentialFailureFallback(opts: {
   fallbackIndex: number;
   authType?: AuthType;
   tenantProviderId: string | null;
+  keyLabel?: string;
   presentation: CredentialFailurePresentation;
   startProviderAttempt?: StartProviderAttempt;
 }): {
@@ -166,6 +170,7 @@ export function buildCredentialFailureFallback(opts: {
   errorBody: string;
   authType?: AuthType;
   tenantProviderId: string | null;
+  keyLabel?: string;
   attempt?: ProviderAttemptRef;
   providerCallStarted: true;
 } {
@@ -174,6 +179,7 @@ export function buildCredentialFailureFallback(opts: {
     model: opts.model,
     authType: opts.authType,
     tenantProviderId: opts.tenantProviderId,
+    keyLabel: opts.keyLabel,
   });
   return {
     model: opts.model,
@@ -183,6 +189,7 @@ export function buildCredentialFailureFallback(opts: {
     errorBody: opts.presentation.errorBody,
     authType: opts.authType,
     tenantProviderId: opts.tenantProviderId,
+    keyLabel: opts.keyLabel,
     attempt,
     providerCallStarted: true,
   };

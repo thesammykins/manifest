@@ -58,6 +58,7 @@ describe('route-credentials', () => {
         model: 'gpt-5.5',
         authType: 'api_key',
         tenantProviderId: null,
+        keyLabel: 'Work',
         presentation,
         startProviderAttempt,
       });
@@ -68,7 +69,7 @@ describe('route-credentials', () => {
       expect(forward.attempt?.completedAtMs).toBeDefined();
       expect(await forward.response.text()).toContain('M100');
       expect(startProviderAttempt).toHaveBeenCalledWith(
-        expect.objectContaining({ provider: 'openai', model: 'gpt-5.5' }),
+        expect.objectContaining({ provider: 'openai', model: 'gpt-5.5', keyLabel: 'Work' }),
       );
     });
 
@@ -79,6 +80,7 @@ describe('route-credentials', () => {
         fallbackIndex: 0,
         authType: 'api_key',
         tenantProviderId: null,
+        keyLabel: 'Backup',
         presentation,
       });
 
@@ -88,6 +90,9 @@ describe('route-credentials', () => {
         fallbackIndex: 0,
         status: 401,
         providerCallStarted: true,
+        // The failed hop names its own connection instead of inheriting the
+        // primary's label at record time.
+        keyLabel: 'Backup',
       });
       expect(entry.errorBody).toBe(presentation.errorBody);
     });
@@ -189,7 +194,7 @@ describe('route-credentials', () => {
       });
     });
 
-    it('tries the preferred subscription account and then the next same-provider account', async () => {
+    it('tries the next same-provider subscription credential after an unusable one', async () => {
       const candidateService = providerKeyService as typeof providerKeyService & {
         getProviderKeyCandidates: jest.Mock;
       };
@@ -239,20 +244,24 @@ describe('route-credentials', () => {
         'a1',
         'same_provider_failover',
       );
-      expect(oauth.openaiOauth.unwrapToken).toHaveBeenNthCalledWith(
-        1,
-        expect.any(String),
-        'a1',
-        't1',
-        'Default',
+    });
+
+    it('leaves an unpinned API-key route unlabelled', async () => {
+      delete (providerKeyService as Record<string, unknown>).getProviderKeyCandidates;
+      providerKeyService.selectProviderKey.mockResolvedValue({
+        apiKey: 'sk-live',
+        id: 'up-work',
+        region: null,
+        label: 'Work',
+        priority: 1,
+      });
+
+      const result = await resolveRouteCredentials(
+        { providerKeyService, oauth },
+        { agentId: 'a1', tenantId: 't1', provider: 'openai', authType: 'api_key' },
       );
-      expect(oauth.openaiOauth.unwrapToken).toHaveBeenNthCalledWith(
-        2,
-        'backup-token',
-        'a1',
-        't1',
-        'Backup',
-      );
+
+      expect(result).toMatchObject({ ok: true, tenantProviderId: 'up-work', keyLabel: undefined });
     });
   });
 });

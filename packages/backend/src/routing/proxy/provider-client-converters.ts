@@ -17,15 +17,13 @@ import {
 import {
   toResponsesRequest,
   fromResponsesResponse,
-  transformResponsesStreamChunk,
-  createChatGptStreamTransformer,
   collectChatGptSseResponse,
-  type ChatGptStreamTransformer,
 } from './chatgpt-adapter';
 import {
   normalizeOpenAiReasoningDelta,
   type OpenAiReasoningStreamFormat,
   supportsReasoningContent,
+  type ReasoningModelCatalog,
 } from './reasoning-format';
 
 /** Convert a ChatGPT Responses API response to OpenAI format. */
@@ -36,15 +34,12 @@ export function convertChatGptResponse(
   return fromResponsesResponse(body, model);
 }
 
-/** Convert a ChatGPT Responses API SSE chunk to OpenAI format. */
-export function convertChatGptStreamChunk(chunk: string, model: string): string | null {
-  return transformResponsesStreamChunk(chunk, model);
-}
-
-/** Create a stateful ChatGPT Responses stream transformer. */
-export function createChatGptTransformer(model: string): ChatGptStreamTransformer {
-  return createChatGptStreamTransformer(model);
-}
+/**
+ * Stateful ChatGPT Responses→OpenAI SSE transformer. Created once per stream
+ * so the terminal event can backfill reasoning summaries that never streamed
+ * as recognizable deltas.
+ */
+export { createChatGptStreamTransformer } from './chatgpt-adapter';
 
 /** Convert a Google non-streaming response to OpenAI format. */
 export function convertGoogleResponse(
@@ -89,7 +84,6 @@ export {
   toAnthropicRequest,
   toResponsesRequest,
   collectChatGptSseResponse,
-  createChatGptStreamTransformer,
 };
 export type { GoogleStreamChunkResult } from './google-adapter';
 export type { ThinkingBlocksCallback } from './anthropic-adapter';
@@ -218,10 +212,15 @@ function supportsReasoningDetails(endpointKey: string): boolean {
   return endpointKey === 'openrouter';
 }
 
-function sanitizeOpenAiMessages(messages: unknown, endpointKey: string, model: string): unknown {
+function sanitizeOpenAiMessages(
+  messages: unknown,
+  endpointKey: string,
+  model: string,
+  catalog?: ReasoningModelCatalog,
+): unknown {
   if (!Array.isArray(messages)) return messages;
 
-  const preserveReasoningContent = supportsReasoningContent(endpointKey, model);
+  const preserveReasoningContent = supportsReasoningContent(endpointKey, model, catalog);
   const preserveReasoningDetails = supportsReasoningDetails(endpointKey);
   const isMistral = endpointKey === 'mistral';
   const mistralIdMap = new Map<string, string>();
@@ -339,6 +338,7 @@ export function sanitizeOpenAiBody(
   body: Record<string, unknown>,
   endpointKey: string,
   model: string,
+  catalog?: ReasoningModelCatalog,
 ): Record<string, unknown> {
   const passthroughTopLevel = PASSTHROUGH_PROVIDERS.has(endpointKey);
 
@@ -351,7 +351,7 @@ export function sanitizeOpenAiBody(
   const cleaned: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body)) {
     if (key === 'messages') {
-      cleaned[key] = sanitizeOpenAiMessages(value, endpointKey, model);
+      cleaned[key] = sanitizeOpenAiMessages(value, endpointKey, model, catalog);
       continue;
     }
     // Rewrite max_tokens → max_completion_tokens for OpenAI-backed endpoints that

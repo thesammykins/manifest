@@ -13,12 +13,12 @@ vi.mock('@solidjs/router', () => ({
 }));
 
 vi.mock('../../src/services/api/analytics.js', () => ({
-  RECOVERED_REQUESTS_TOOLTIP: 'Successful requests that were recovered by Auto-fix or fallback.',
+  RECOVERED_REQUESTS_TOOLTIP: 'Successful requests that were recovered by Autofix or fallback.',
   REQUEST_SUCCESS_RATE_TOOLTIP:
     'Successful requests over all requests. Recovered requests count as successful.',
   totalAttemptsTooltip: (doctor: boolean) =>
     doctor
-      ? 'Every provider call counts here, including fallback retries and auto-fixed attempts. One request can produce several attempts.'
+      ? 'Every provider call counts here, including fallback retries and autofixed attempts. One request can produce several attempts.'
       : 'Every provider call counts here, including fallback retries. One request can produce several attempts.',
   MODEL_SUCCESS_RATE_TOOLTIP: 'Successful attempts over all attempts for this model.',
   PROVIDER_SUCCESS_RATE_TOOLTIP: 'Successful attempts over all attempts for this provider.',
@@ -70,24 +70,24 @@ describe('NotificationBell', () => {
 
     await waitFor(() => expect(screen.getByLabelText('Notifications')).toBeDefined());
     fireEvent.click(screen.getByLabelText('Notifications'));
-    const link = screen.getByText(/Auto-fix is inactive on/).closest('a')!;
+    const link = screen.getByText(/Autofix is inactive on/).closest('a')!;
     expect(link.getAttribute('href')).toBe('/harnesses/demo/settings?highlight=autofix');
     fireEvent.click(link);
     expect(localStorage.getItem('manifest_notif_read')).toContain('demo');
-    expect(screen.queryByText(/Auto-fix is inactive on/)).toBeNull();
+    expect(screen.queryByText(/Autofix is inactive on/)).toBeNull();
 
     fireEvent.click(screen.getByLabelText('Notifications'));
-    expect(screen.getByText(/Auto-fix is inactive on/)).toBeDefined();
+    expect(screen.getByText(/Autofix is inactive on/)).toBeDefined();
     fireEvent.mouseDown(document.body);
-    expect(screen.queryByText(/Auto-fix is inactive on/)).toBeNull();
+    expect(screen.queryByText(/Autofix is inactive on/)).toBeNull();
   });
 
   it('clears read state after an agent is enabled and accepts array agent responses', async () => {
     localStorage.setItem('manifest_notif_read', JSON.stringify(['demo']));
     mockGetAgents.mockResolvedValue([{ agent_name: 'demo', display_name: '' }]);
     mockGetStatus
-      .mockResolvedValueOnce({ any_enabled: false, enabled_agents: [] })
-      .mockResolvedValue({ any_enabled: true, enabled_agents: ['demo'] });
+      .mockResolvedValueOnce({ any_enabled: false, enabled_agents: [], consented: true })
+      .mockResolvedValue({ any_enabled: true, enabled_agents: ['demo'], consented: true });
     render(() => <NotificationBell />);
 
     await waitFor(() => expect(screen.getByLabelText('Notifications')).toBeDefined());
@@ -103,7 +103,7 @@ describe('NotificationBell', () => {
     expect(screen.queryByLabelText('Notifications')).toBeNull();
   });
 
-  it('hides itself when loading workspace Auto-fix status fails', async () => {
+  it('hides itself when loading workspace Autofix status fails', async () => {
     mockGetStatus.mockRejectedValue(new Error('offline'));
     render(() => <NotificationBell />);
     await waitFor(() => expect(mockGetStatus).toHaveBeenCalled());
@@ -127,16 +127,16 @@ describe('NotificationBell', () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('blocked');
     });
-    fireEvent.click(screen.getByText(/Auto-fix is inactive on/).closest('a')!);
-    expect(screen.queryByText(/Auto-fix is inactive on/)).toBeNull();
+    fireEvent.click(screen.getByText(/Autofix is inactive on/).closest('a')!);
+    expect(screen.queryByText(/Autofix is inactive on/)).toBeNull();
     setItem.mockRestore();
   });
 
   it('keeps working when clearing enabled-agent read state cannot persist', async () => {
     localStorage.setItem('manifest_notif_read', JSON.stringify(['demo']));
     mockGetStatus
-      .mockResolvedValueOnce({ any_enabled: false, enabled_agents: [] })
-      .mockResolvedValue({ any_enabled: true, enabled_agents: ['demo'] });
+      .mockResolvedValueOnce({ any_enabled: false, enabled_agents: [], consented: true })
+      .mockResolvedValue({ any_enabled: true, enabled_agents: ['demo'], consented: true });
     render(() => <NotificationBell />);
     await waitFor(() => expect(screen.getByLabelText('Notifications')).toBeDefined());
     const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {

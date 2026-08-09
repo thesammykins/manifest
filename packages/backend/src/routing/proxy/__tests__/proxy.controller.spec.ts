@@ -64,7 +64,6 @@ function mockRequest(
   userId = 'user-1',
   headers: Record<string, string> = {},
   tenantId = 'tenant-1',
-  query: Record<string, string> = {},
 ) {
   return {
     ingestionContext: {
@@ -75,7 +74,6 @@ function mockRequest(
     },
     body,
     headers,
-    query,
     ip: '127.0.0.1',
   };
 }
@@ -94,11 +92,6 @@ function makeDiscoveredModel(overrides: Partial<DiscoveredModel> = {}): Discover
     authType: 'api_key',
     ...overrides,
   };
-}
-
-function requireOpenAiModelList(result: Awaited<ReturnType<ProxyController['models']>>) {
-  if (!('data' in result)) throw new Error('Expected an OpenAI-compatible model list');
-  return result;
 }
 
 function makeInterruptedSseResponse(firstChunk: string): Response {
@@ -135,10 +128,7 @@ describe('ProxyController', () => {
     convertGoogleStreamChunk: jest.Mock;
     convertAnthropicResponse: jest.Mock;
     convertAnthropicStreamChunk: jest.Mock;
-    createChatGptStreamTransformer: jest.Mock;
   };
-  let modelAliasService: { listEnabled: jest.Mock; resolveModelRequest: jest.Mock };
-  let resolveService: { getAvailableRouteChains: jest.Mock };
   let mockMessageManager: {
     transaction: jest.Mock;
     getRepository: jest.Mock;
@@ -152,8 +142,8 @@ describe('ProxyController', () => {
     manager: { transaction: jest.Mock };
   };
   let mockPricingCache: { getByModel: jest.Mock };
-  let modelDiscovery: { getModelsForAgent: jest.Mock; getCodexModelsForAgent: jest.Mock };
-  let providerParamSpecs: { getSpecs: jest.Mock; getCapabilities: jest.Mock };
+  let modelDiscovery: { getModelsForAgent: jest.Mock };
+  let providerParamSpecs: { getCapabilities: jest.Mock };
   let modelsDevSync: { lookupModel: jest.Mock };
   let recorder: ProxyMessageRecorder;
   let planService: { assertWithinRequestLimit: jest.Mock };
@@ -177,20 +167,6 @@ describe('ProxyController', () => {
       convertGoogleStreamChunk: jest.fn(),
       convertAnthropicResponse: jest.fn(),
       convertAnthropicStreamChunk: jest.fn(),
-      createChatGptStreamTransformer: jest.fn().mockReturnValue({
-        transform: jest.fn(),
-        finalize: jest.fn().mockReturnValue(null),
-      }),
-    };
-    modelAliasService = {
-      listEnabled: jest.fn().mockResolvedValue([]),
-      resolveModelRequest: jest.fn().mockResolvedValue({
-        kind: 'resolved',
-        resolved: {
-          route: { provider: 'openai', authType: 'api_key', model: 'gpt-5' },
-          fallback_routes: null,
-        },
-      }),
     };
     mockMessageManager = {
       transaction: jest.fn(async (cb: (manager: unknown) => Promise<unknown>) =>
@@ -210,15 +186,8 @@ describe('ProxyController', () => {
     mockPricingCache = { getByModel: jest.fn().mockReturnValue(undefined) };
     modelDiscovery = {
       getModelsForAgent: jest.fn().mockResolvedValue([]),
-      getCodexModelsForAgent: jest.fn().mockResolvedValue([]),
     };
-    providerParamSpecs = {
-      getSpecs: jest.fn().mockResolvedValue([]),
-      getCapabilities: jest.fn().mockResolvedValue(null),
-    };
-    resolveService = {
-      getAvailableRouteChains: jest.fn().mockResolvedValue([]),
-    };
+    providerParamSpecs = { getCapabilities: jest.fn().mockResolvedValue(null) };
     modelsDevSync = { lookupModel: jest.fn().mockReturnValue(null) };
     observationReporter = { report: jest.fn() };
     recordingCache = { isRecording: jest.fn().mockResolvedValue(false) };
@@ -254,12 +223,10 @@ describe('ProxyController', () => {
       new ThoughtSignatureCache(),
       new ThinkingBlockCache(),
       new ReasoningContentCache(),
-      modelAliasService as never,
       modelDiscovery as never,
-      providerParamSpecs as never,
-      resolveService as never,
       planService as never,
       observationReporter as never,
+      providerParamSpecs as never,
       modelsDevSync as never,
       recordingCache as never,
       attemptRecording as never,
@@ -270,9 +237,8 @@ describe('ProxyController', () => {
     recorder.onModuleDestroy();
   });
 
-  it('should expose /v1/models as an OpenAI-compatible list with the Manifest auto routes', async () => {
-    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
-    expect(result).toEqual({
+  it('should expose /v1/models as an OpenAI-compatible list with the Manifest auto route', async () => {
+    await expect(controller.models(mockRequest({}) as never)).resolves.toEqual({
       object: 'list',
       data: [
         {
@@ -280,149 +246,13 @@ describe('ProxyController', () => {
           object: 'model',
           created: 0,
           owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-        },
-        {
-          id: 'manifest/auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
         },
       ],
     });
-    expect(modelAliasService.listEnabled).toHaveBeenCalledWith('agent-1');
     expect(modelDiscovery.getModelsForAgent).toHaveBeenCalledWith('tenant-1', 'agent-1');
-    expect(providerParamSpecs.getSpecs).not.toHaveBeenCalled();
   });
 
-  it('should expose alias-specific Codex reasoning metadata to Codex model refreshes', async () => {
-    modelAliasService.listEnabled.mockResolvedValue([
-      {
-        model_id: 'gpt-5.6',
-        display_name: 'GPT-5.6',
-        source_kind: 'direct',
-        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
-      },
-      {
-        model_id: 'codex-auto-review',
-        display_name: 'Codex Auto Review',
-        source_kind: 'tier',
-        route: null,
-      },
-    ]);
-    modelDiscovery.getCodexModelsForAgent.mockResolvedValue([
-      makeDiscoveredModel({
-        id: 'gpt-5.6-sol',
-        displayName: 'GPT-5.6 Sol',
-        provider: 'openai',
-        authType: 'subscription',
-        capabilityReasoning: true,
-        codexModelInfo: {
-          slug: 'gpt-5.6-sol',
-          display_name: 'GPT-5.6 Sol',
-          description: 'Fast coding model',
-          default_reasoning_level: 'low',
-          supported_reasoning_levels: [
-            { effort: 'low', description: 'Fast responses' },
-            { effort: 'medium', description: 'Balanced reasoning' },
-            { effort: 'high', description: 'Deeper reasoning' },
-            { effort: 'max', description: 'Maximum reasoning' },
-            { effort: 'ultra', description: 'Maximum reasoning with delegation' },
-          ],
-          visibility: 'list',
-          supported_in_api: true,
-          priority: 5,
-        },
-      }),
-    ]);
-
-    await expect(
-      controller.models(
-        mockRequest({}, 'user-1', {}, 'tenant-1', { client_version: '0.144.1' }) as never,
-      ),
-    ).resolves.toEqual({
-      models: [
-        expect.objectContaining({
-          slug: 'gpt-5.6',
-          display_name: 'GPT-5.6',
-          default_reasoning_level: 'low',
-          supported_reasoning_levels: [
-            { effort: 'low', description: 'Fast responses' },
-            { effort: 'medium', description: 'Balanced reasoning' },
-            { effort: 'high', description: 'Deeper reasoning' },
-            { effort: 'max', description: 'Maximum reasoning' },
-            { effort: 'ultra', description: 'Maximum reasoning with delegation' },
-          ],
-          visibility: 'list',
-          supported_in_api: true,
-          priority: 5,
-        }),
-      ],
-    });
-    expect(modelDiscovery.getCodexModelsForAgent).toHaveBeenCalledWith('tenant-1', 'agent-1');
-    expect(modelDiscovery.getModelsForAgent).not.toHaveBeenCalled();
-  });
-
-  it('should filter open-ended reasoning efforts for Codex clients before 0.138.0', async () => {
-    modelAliasService.listEnabled.mockResolvedValue([
-      {
-        model_id: 'gpt-5.6',
-        display_name: 'GPT-5.6',
-        source_kind: 'direct',
-        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
-      },
-    ]);
-    modelDiscovery.getCodexModelsForAgent.mockResolvedValue([
-      makeDiscoveredModel({
-        id: 'gpt-5.6-sol',
-        displayName: 'GPT-5.6 Sol',
-        provider: 'openai',
-        authType: 'subscription',
-        capabilityReasoning: true,
-        codexModelInfo: {
-          slug: 'gpt-5.6-sol',
-          display_name: 'GPT-5.6 Sol',
-          default_reasoning_level: 'ultra',
-          supported_reasoning_levels: [
-            { effort: 'low', description: 'Fast responses' },
-            { effort: 'medium', description: 'Balanced reasoning' },
-            { effort: 'high', description: 'Deeper reasoning' },
-            { effort: 'xhigh', description: 'Extra high reasoning' },
-            { effort: 'max', description: 'Maximum reasoning' },
-            { effort: 'ultra', description: 'Maximum reasoning with delegation' },
-          ],
-          visibility: 'list',
-          supported_in_api: true,
-          priority: 5,
-        },
-      }),
-    ]);
-
-    await expect(
-      controller.models(
-        mockRequest({}, 'user-1', {}, 'tenant-1', { client_version: '0.135.0' }) as never,
-      ),
-    ).resolves.toEqual({
-      models: [
-        expect.objectContaining({
-          slug: 'gpt-5.6',
-          default_reasoning_level: 'xhigh',
-          supported_reasoning_levels: [
-            { effort: 'low', description: 'Fast responses' },
-            { effort: 'medium', description: 'Balanced reasoning' },
-            { effort: 'high', description: 'Deeper reasoning' },
-            { effort: 'xhigh', description: 'Extra high reasoning' },
-          ],
-        }),
-      ],
-    });
-  });
-
-  it('should include aliases before authenticated agent models using provider-qualified ids', async () => {
-    modelAliasService.listEnabled.mockResolvedValue([
-      { model_id: 'openai-api/gpt-5-high', display_name: 'GPT-5 High' },
-    ]);
+  it('should include authenticated agent models using provider-qualified ids', async () => {
     modelDiscovery.getModelsForAgent.mockResolvedValue([
       makeDiscoveredModel({ id: 'gpt-4o', provider: 'openai', authType: 'api_key' }),
       makeDiscoveredModel({ id: 'gpt-4o', provider: 'openrouter', authType: 'api_key' }),
@@ -440,198 +270,32 @@ describe('ProxyController', () => {
       makeDiscoveredModel({ id: 'gpt-4o', provider: 'openai', authType: 'api_key' }),
     ]);
 
-    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
-    expect(result.object).toBe('list');
-    expect(result.data.map((model) => model.id)).toEqual([
-      'auto',
-      'manifest/auto',
-      'openai-api/gpt-5-high',
-      'openai/gpt-4o',
-      'openrouter/gpt-4o',
-      'openai/gpt-4o-subscription',
-      'opencode-go/glm-5.1-subscription',
-      'custom:provider-1/model-a',
-    ]);
-    expect(result.data[0]).toEqual(
-      expect.objectContaining({ context_window: 128000, context_length: 128000 }),
-    );
-    expect(result.data.find((model) => model.id === 'openai/gpt-4o')).toEqual(
-      expect.objectContaining({
-        object: 'model',
-        created: 0,
-        owned_by: 'openai',
-        context_window: 128000,
-        context_length: 128000,
-      }),
-    );
-    expect(modelAliasService.listEnabled).toHaveBeenCalledWith('agent-1');
-  });
-
-  it('should expose context metadata from auto routes, aliases, and raw provider models', async () => {
-    modelAliasService.listEnabled.mockResolvedValue([
-      { model_id: 'balanced', display_name: 'Balanced' },
-    ]);
-    modelAliasService.resolveModelRequest.mockResolvedValue({
-      kind: 'resolved',
-      resolved: {
-        route: { provider: 'openai', authType: 'api_key', model: 'gpt-large' },
-        fallback_routes: [{ provider: 'deepseek', authType: 'api_key', model: 'deepseek-small' }],
-      },
-    });
-    modelDiscovery.getModelsForAgent.mockResolvedValue([
-      makeDiscoveredModel({
-        id: 'gpt-large',
-        provider: 'openai',
-        authType: 'api_key',
-        contextWindow: 200000,
-      }),
-      makeDiscoveredModel({
-        id: 'deepseek-small',
-        provider: 'deepseek',
-        authType: 'api_key',
-        contextWindow: 16000,
-      }),
-    ]);
-    resolveService.getAvailableRouteChains.mockResolvedValue([
-      {
-        primaryRoute: { provider: 'openai', authType: 'api_key', model: 'gpt-large' },
-        fallbackRoutes: [{ provider: 'deepseek', authType: 'api_key', model: 'deepseek-small' }],
-      },
-    ]);
-
-    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
-
-    expect(result.data.find((model) => model.id === 'auto')).toEqual(
-      expect.objectContaining({ context_window: 16000, context_length: 16000 }),
-    );
-    expect(result.data.find((model) => model.id === 'balanced')).toEqual(
-      expect.objectContaining({ context_window: 16000, context_length: 16000 }),
-    );
-    expect(result.data.find((model) => model.id === 'openai/gpt-large')).toEqual(
-      expect.objectContaining({ context_window: 200000, context_length: 200000 }),
-    );
-  });
-
-  it('should omit aliases that no longer resolve to an available route', async () => {
-    modelAliasService.listEnabled.mockResolvedValue([
-      { model_id: 'hidden-alias', display_name: 'Hidden alias' },
-    ]);
-    modelAliasService.resolveModelRequest.mockResolvedValue({
-      kind: 'resolved',
-      resolved: { route: null, fallback_routes: null },
-    });
-
-    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
-
-    expect(result.data.map((model) => model.id)).not.toContain('hidden-alias');
-  });
-
-  it('should include Manifest reasoning params only when requested', async () => {
-    modelDiscovery.getModelsForAgent.mockResolvedValue([
-      makeDiscoveredModel({ id: 'gpt-5', provider: 'openai', authType: 'api_key' }),
-    ]);
-    providerParamSpecs.getSpecs.mockResolvedValue([
-      {
-        provider: 'openai',
-        authType: 'api_key',
-        model: 'gpt-5',
-        path: 'reasoning_effort',
-        type: 'enum',
-        label: 'Reasoning effort',
-        description: 'Controls reasoning effort.',
-        group: 'reasoning',
-        values: ['low', 'medium', 'high'],
-        default: 'medium',
-      },
-    ]);
-
-    await expect(
-      controller.models(
-        mockRequest({}, 'user-1', {}, 'tenant-1', { manifest_params: '1' }) as never,
-      ),
-    ).resolves.toEqual({
+    await expect(controller.models(mockRequest({}) as never)).resolves.toEqual({
       object: 'list',
-      data: expect.arrayContaining([
-        expect.objectContaining({
-          id: 'openai/gpt-5',
-          manifest_params: [
-            {
-              category: 'reasoning',
-              path: 'reasoning_effort',
-              label: 'Reasoning effort',
-              values: ['low', 'medium', 'high'],
-              default: 'medium',
-            },
-          ],
-        }),
-      ]),
+      data: [
+        { id: 'auto', object: 'model', created: 0, owned_by: 'manifest' },
+        { id: 'openai/gpt-4o', object: 'model', created: 0, owned_by: 'openai' },
+        { id: 'openrouter/gpt-4o', object: 'model', created: 0, owned_by: 'openrouter' },
+        {
+          id: 'openai/gpt-4o-subscription',
+          object: 'model',
+          created: 0,
+          owned_by: 'openai',
+        },
+        {
+          id: 'opencode-go/glm-5.1-subscription',
+          object: 'model',
+          created: 0,
+          owned_by: 'opencode-go',
+        },
+        {
+          id: 'custom:provider-1/model-a',
+          object: 'model',
+          created: 0,
+          owned_by: 'custom:provider-1',
+        },
+      ],
     });
-    expect(providerParamSpecs.getSpecs).toHaveBeenCalledWith('openai', 'api_key', 'gpt-5');
-  });
-
-  it('should expose reasoning suffix variants alongside canonical model ids', async () => {
-    modelDiscovery.getModelsForAgent.mockResolvedValue([
-      makeDiscoveredModel({
-        id: 'gpt-5.5',
-        provider: 'openai',
-        authType: 'subscription',
-      }),
-      makeDiscoveredModel({
-        id: 'deepseek-v4-flash',
-        provider: 'deepseek',
-        authType: 'api_key',
-      }),
-    ]);
-    providerParamSpecs.getSpecs.mockImplementation(
-      async (provider: string, _authType: string, model: string) => {
-        if (provider === 'deepseek') {
-          return [
-            {
-              provider,
-              authType: 'api_key',
-              model,
-              path: 'reasoning_effort',
-              type: 'enum',
-              label: 'Reasoning effort',
-              description: 'Controls reasoning effort.',
-              group: 'reasoning',
-              values: ['high', 'max'],
-              default: 'high',
-            },
-          ];
-        }
-        return [
-          {
-            provider,
-            authType: 'subscription',
-            model,
-            path: 'reasoning.effort',
-            type: 'enum',
-            label: 'Reasoning effort',
-            description: 'Controls reasoning effort.',
-            group: 'reasoning',
-            values: ['minimal', 'low', 'medium', 'high', 'xhigh'],
-            default: 'medium',
-          },
-        ];
-      },
-    );
-
-    const result = requireOpenAiModelList(await controller.models(mockRequest({}) as never));
-    const ids = result.data.map((model) => model.id);
-
-    expect(ids).toEqual(
-      expect.arrayContaining([
-        'openai/gpt-5.5-subscription',
-        'openai/gpt-5.5-subscription-low',
-        'openai/gpt-5.5-subscription-xhigh',
-        'deepseek/deepseek-v4-flash',
-        'deepseek/deepseek-v4-flash-max',
-      ]),
-    );
-    expect(result.data.find((model) => model.id.endsWith('-low'))).not.toHaveProperty(
-      'manifest_params',
-    );
   });
 
   it('should keep the default /v1/models shape unchanged when optional metadata exists', async () => {
@@ -651,32 +315,8 @@ describe('ProxyController', () => {
     await expect(controller.models(mockRequest({}) as never)).resolves.toEqual({
       object: 'list',
       data: [
-        {
-          id: 'auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
-        {
-          id: 'manifest/auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
-        {
-          id: 'openai/gpt-4o',
-          object: 'model',
-          created: 0,
-          owned_by: 'openai',
-          context_window: 128000,
-          context_length: 128000,
-        },
+        { id: 'auto', object: 'model', created: 0, owned_by: 'manifest' },
+        { id: 'openai/gpt-4o', object: 'model', created: 0, owned_by: 'openai' },
       ],
     });
   });
@@ -697,31 +337,12 @@ describe('ProxyController', () => {
     await expect(controller.models(mockRequest({}) as never, 'true')).resolves.toEqual({
       object: 'list',
       data: [
-        {
-          id: 'auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
-        {
-          id: 'manifest/auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
+        { id: 'auto', object: 'model', created: 0, owned_by: 'manifest' },
         {
           id: 'openai/gpt-5.4-mini-subscription',
           object: 'model',
           created: 0,
           owned_by: 'openai',
-          context_window: 128000,
-          context_length: 128000,
           capabilities: {
             input_modalities: ['text', 'image'],
             output_modalities: ['text'],
@@ -753,31 +374,12 @@ describe('ProxyController', () => {
     await expect(controller.models(mockRequest({}) as never, undefined, 'true')).resolves.toEqual({
       object: 'list',
       data: [
-        {
-          id: 'auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
-        {
-          id: 'manifest/auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
+        { id: 'auto', object: 'model', created: 0, owned_by: 'manifest' },
         {
           id: 'openai/gpt-5.4-mini-subscription',
           object: 'model',
           created: 0,
           owned_by: 'openai',
-          context_window: 128000,
-          context_length: 128000,
           cost: { input: 0.25, output: 2 },
         },
         {
@@ -785,8 +387,6 @@ describe('ProxyController', () => {
           object: 'model',
           created: 0,
           owned_by: 'openrouter',
-          context_window: 128000,
-          context_length: 128000,
           cost: { input: 0, output: 0 },
         },
       ],
@@ -812,35 +412,14 @@ describe('ProxyController', () => {
       }),
     ]);
 
-    const withCosts = requireOpenAiModelList(
-      await controller.models(mockRequest({}) as never, undefined, 'true'),
-    );
+    const withCosts = await controller.models(mockRequest({}) as never, undefined, 'true');
     expect(withCosts.data).toEqual([
-      {
-        id: 'auto',
-        object: 'model',
-        created: 0,
-        owned_by: 'manifest',
-        display_name: 'Manifest Auto',
-        context_window: 128000,
-        context_length: 128000,
-      },
-      {
-        id: 'manifest/auto',
-        object: 'model',
-        created: 0,
-        owned_by: 'manifest',
-        display_name: 'Manifest Auto',
-        context_window: 128000,
-        context_length: 128000,
-      },
+      { id: 'auto', object: 'model', created: 0, owned_by: 'manifest' },
       {
         id: 'openai/input-only',
         object: 'model',
         created: 0,
         owned_by: 'openai',
-        context_window: 128000,
-        context_length: 128000,
         cost: { input: 1 },
       },
       {
@@ -848,23 +427,12 @@ describe('ProxyController', () => {
         object: 'model',
         created: 0,
         owned_by: 'openai',
-        context_window: 128000,
-        context_length: 128000,
         cost: { output: 3 },
       },
-      {
-        id: 'openai/unknown',
-        object: 'model',
-        created: 0,
-        owned_by: 'openai',
-        context_window: 128000,
-        context_length: 128000,
-      },
+      { id: 'openai/unknown', object: 'model', created: 0, owned_by: 'openai' },
     ]);
 
-    const withoutCosts = requireOpenAiModelList(
-      await controller.models(mockRequest({}) as never, undefined, '1'),
-    );
+    const withoutCosts = await controller.models(mockRequest({}) as never, undefined, '1');
     expect(withoutCosts.data.every((model) => !('cost' in model))).toBe(true);
   });
 
@@ -883,39 +451,13 @@ describe('ProxyController', () => {
     await expect(controller.models(mockRequest({}) as never, 'true')).resolves.toEqual({
       object: 'list',
       data: [
-        {
-          id: 'auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
-        {
-          id: 'manifest/auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
-        {
-          id: 'kiro/mystery-model',
-          object: 'model',
-          created: 0,
-          owned_by: 'kiro',
-          context_window: 128000,
-          context_length: 128000,
-        },
+        { id: 'auto', object: 'model', created: 0, owned_by: 'manifest' },
+        { id: 'kiro/mystery-model', object: 'model', created: 0, owned_by: 'kiro' },
         {
           id: 'openai/gpt-5.3-codex-spark-subscription',
           object: 'model',
           created: 0,
           owned_by: 'openai',
-          context_window: 128000,
-          context_length: 128000,
           capabilities: {
             input_modalities: ['text'],
             output_modalities: ['text'],
@@ -947,31 +489,12 @@ describe('ProxyController', () => {
     await expect(controller.models(mockRequest({}) as never, 'true')).resolves.toEqual({
       object: 'list',
       data: [
-        {
-          id: 'auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
-        {
-          id: 'manifest/auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
+        { id: 'auto', object: 'model', created: 0, owned_by: 'manifest' },
         {
           id: 'openai/gpt-4o',
           object: 'model',
           created: 0,
           owned_by: 'openai',
-          context_window: 128000,
-          context_length: 128000,
           capabilities: {
             input_modalities: ['text', 'image'],
             output_modalities: ['text'],
@@ -1000,31 +523,12 @@ describe('ProxyController', () => {
     await expect(controller.models(mockRequest({}) as never, 'true', 'true')).resolves.toEqual({
       object: 'list',
       data: [
-        {
-          id: 'auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
-        {
-          id: 'manifest/auto',
-          object: 'model',
-          created: 0,
-          owned_by: 'manifest',
-          display_name: 'Manifest Auto',
-          context_window: 128000,
-          context_length: 128000,
-        },
+        { id: 'auto', object: 'model', created: 0, owned_by: 'manifest' },
         {
           id: 'openai/gpt-4o',
           object: 'model',
           created: 0,
           owned_by: 'openai',
-          context_window: 128000,
-          context_length: 128000,
           capabilities: {
             input_modalities: ['text', 'image'],
             output_modalities: ['text'],
@@ -1072,6 +576,38 @@ describe('ProxyController', () => {
     expect(headers['X-Manifest-Confidence']).toBe('0.9');
     expect(headers['X-Manifest-Reason']).toBe('scored');
   });
+
+  it.each([
+    ['chatCompletions', 'chat_completions', { messages: [{ role: 'user', content: 'hi' }] }],
+    ['responses', 'responses', { input: 'hi' }],
+    ['messages', 'messages', { max_tokens: 8, messages: [{ role: 'user', content: 'hi' }] }],
+  ] as const)(
+    'stamps the API surface of /v1/%s on the pending Request',
+    async (route, expectedApiMode, body) => {
+      const mockProviderResp = new Response(
+        JSON.stringify({ choices: [{ message: { content: 'hello' } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+      proxyService.proxyRequest.mockResolvedValue({
+        forward: {
+          response: mockProviderResp,
+          isGoogle: false,
+          isAnthropic: false,
+          isChatGpt: false,
+        },
+        meta: { tier: 'simple', model: 'gpt-4o', provider: 'OpenAI', confidence: 0.9 },
+      });
+      const pending = jest.spyOn(recorder, 'recordPendingRequest').mockResolvedValue(undefined);
+      const { res } = mockResponse();
+
+      await controller[route](mockRequest({ ...body }) as never, res as never);
+
+      expect(pending).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ apiMode: expectedApiMode }),
+      );
+    },
+  );
 
   it('records the exact provider request and response on its Provider Attempt', async () => {
     recordingCache.isRecording.mockResolvedValue(true);
@@ -1137,7 +673,66 @@ describe('ProxyController', () => {
     );
   });
 
-  it('keeps Auto-fix original and retry payloads on separate Provider Attempts', async () => {
+  it('reserves cooldown order without inserting a pending provider-call row', async () => {
+    const pendingAttempt = jest.spyOn(recorder, 'recordPendingProviderAttempt');
+    let cooldownAttemptNumber: number | undefined;
+    let fallbackAttemptNumber: number | undefined;
+    proxyService.proxyRequest.mockImplementation(
+      async (options: { startProviderAttempt: StartProviderAttempt }) => {
+        const cooldown = options.startProviderAttempt({
+          provider: 'anthropic',
+          model: 'claude-opus-5',
+          authType: 'subscription',
+          providerCallStarted: false,
+        });
+        const fallback = options.startProviderAttempt({
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          authType: 'api_key',
+        });
+        cooldownAttemptNumber = cooldown.attemptNumber;
+        fallbackAttemptNumber = fallback.attemptNumber;
+        return {
+          forward: {
+            response: new Response('{"choices":[]}', {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+            isGoogle: false,
+            isAnthropic: false,
+            isChatGpt: false,
+            attempt: fallback,
+          },
+          meta: {
+            tier: 'default',
+            model: 'deepseek-v4-flash',
+            provider: 'deepseek',
+            confidence: 0.9,
+            reason: 'scored',
+            attempt: fallback,
+          },
+        };
+      },
+    );
+    const { res } = mockResponse();
+
+    await controller.chatCompletions(
+      mockRequest({ model: 'auto', messages: [{ role: 'user', content: 'hi' }] }) as never,
+      res as never,
+    );
+
+    expect(cooldownAttemptNumber).toBe(1);
+    expect(fallbackAttemptNumber).toBe(2);
+    expect(pendingAttempt).toHaveBeenCalledTimes(1);
+    expect(pendingAttempt).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.objectContaining({ attemptNumber: 2 }),
+      expect.objectContaining({ provider: 'deepseek' }),
+    );
+  });
+
+  it('keeps Autofix original and retry payloads on separate Provider Attempts', async () => {
     recordingCache.isRecording.mockResolvedValue(true);
     const originalBody = { model: 'gpt-4o', messages: [], unsupported: true };
     const retryBody = { model: 'gpt-4o', messages: [] };
@@ -1545,6 +1140,65 @@ describe('ProxyController', () => {
     expect(json.content).toEqual([{ type: 'text', text: 'hi there' }]);
     expect(json.stop_reason).toBe('end_turn');
     expect(json.usage).toMatchObject({ input_tokens: 4, output_tokens: 2 });
+  });
+
+  it('preserves an Anthropic 400 diagnostic on /v1/messages in production', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const providerError = {
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: '`temperature` is deprecated for this model.',
+        },
+      };
+      proxyService.proxyRequest.mockResolvedValue({
+        forward: {
+          response: new Response(JSON.stringify(providerError), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+          isGoogle: false,
+          isAnthropic: true,
+          isChatGpt: false,
+        },
+        meta: {
+          tier: 'complex',
+          model: 'claude-opus-4-1',
+          provider: 'Anthropic',
+          confidence: 1,
+          reason: 'explicit-model',
+        },
+      });
+
+      const req = mockRequest({
+        model: 'claude-opus-4-1',
+        max_tokens: 64,
+        temperature: 0.1,
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      const { res } = mockResponse();
+
+      await controller.messages(req as never, res as never);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        type: 'error',
+        error: expect.objectContaining({
+          type: 'invalid_request_error',
+          message: '`temperature` is deprecated for this model.',
+          status: 400,
+          source: 'provider',
+        }),
+      });
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalEnv;
+      }
+    }
   });
 
   it('should pass through native Responses JSON bodies', async () => {
@@ -2168,25 +1822,6 @@ describe('ProxyController', () => {
     );
   });
 
-  it('should HTML-escape non-chat client error envelopes', async () => {
-    proxyService.proxyRequest.mockRejectedValue(
-      new HttpException(`<img src=x onerror="alert('xss')">`, 400),
-    );
-
-    const req = mockRequest({ messages: [{ role: 'user', content: 'test' }] });
-    const { res } = mockResponse();
-
-    await controller.chatCompletions(req as never, res as never);
-
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({
-      error: {
-        message: `&lt;img src=x onerror="alert('xss')"&gt;`,
-        type: 'invalid_request_error',
-      },
-    });
-  });
-
   it('should surface collected Responses SSE failures as OpenAI-compatible errors', async () => {
     proxyService.proxyRequest.mockRejectedValue(
       new ResponsesSseError(
@@ -2212,42 +1847,10 @@ describe('ProxyController', () => {
       error: expect.objectContaining({
         message: 'Model unavailable',
         type: 'invalid_request_error',
-        code: null,
+        code: 'model_not_found',
         status: 404,
         source: 'provider',
       }),
-    });
-  });
-
-  it('should HTML-escape collected Responses SSE upstream messages', async () => {
-    proxyService.proxyRequest.mockRejectedValue(
-      new ResponsesSseError(
-        `<img src=x onerror="alert('xss')">`,
-        400,
-        JSON.stringify({
-          error: {
-            message: `<img src=x onerror="alert('xss')">`,
-            type: 'invalid_request_error',
-          },
-        }),
-      ),
-    );
-
-    const req = mockRequest({ messages: [{ role: 'user', content: 'test' }] });
-    const { res } = mockResponse();
-
-    await controller.chatCompletions(req as never, res as never);
-
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({
-      error: {
-        message: `&lt;img src=x onerror="alert('xss')"&gt;`,
-        type: 'invalid_request_error',
-        param: null,
-        code: null,
-        status: 400,
-        source: 'provider',
-      },
     });
   });
 
@@ -2269,30 +1872,6 @@ describe('ProxyController', () => {
           expect.objectContaining({
             message: expect.objectContaining({
               content: 'Bad request: messages required',
-            }),
-          }),
-        ]),
-      }),
-    );
-  });
-
-  it('should HTML-escape HttpException friendly chat messages', async () => {
-    proxyService.proxyRequest.mockRejectedValue(
-      new HttpException(`<img src=x onerror="alert('xss')">`, 400),
-    );
-
-    const req = mockRequest({}, 'user-1', { accept: 'text/event-stream' });
-    const { res } = mockResponse();
-
-    await controller.chatCompletions(req as never, res as never);
-
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        choices: expect.arrayContaining([
-          expect.objectContaining({
-            message: expect.objectContaining({
-              content: `&lt;img src=x onerror="alert('xss')"&gt;`,
             }),
           }),
         ]),
@@ -2554,22 +2133,6 @@ describe('ProxyController', () => {
           },
           429,
         );
-      });
-
-      const req = mockRequest({ messages: [{ role: 'user', content: 'hi' }] });
-      const { res } = mockResponse();
-
-      await controller.chatCompletions(req as never, res as never);
-
-      expect(res.status).toHaveBeenCalledWith(429);
-      expect(res.json).toHaveBeenCalledWith({
-        error: { message: 'Rate limited by upstream provider', type: 'rate_limit_error' },
-      });
-    });
-
-    it('should keep string HttpException details out of 429 responses', async () => {
-      rateLimiter.checkLimit.mockImplementation(() => {
-        throw new HttpException(`<img src=x onerror="alert('xss')">`, 429);
       });
 
       const req = mockRequest({ messages: [{ role: 'user', content: 'hi' }] });
@@ -3844,32 +3407,6 @@ describe('ProxyController', () => {
   });
 
   describe('streaming', () => {
-    function parseDataFrames(written: string[]): Array<Record<string, unknown> | '[DONE]'> {
-      return written
-        .join('')
-        .trim()
-        .split('\n\n')
-        .map((frame) => frame.trim())
-        .filter((frame) => frame.startsWith('data: '))
-        .map((frame) => {
-          const payload = frame.slice('data: '.length);
-          if (payload === '[DONE]') return '[DONE]' as const;
-          return JSON.parse(payload) as Record<string, unknown>;
-        });
-    }
-
-    function expectUpstreamErrorBeforeDone(written: string[]): void {
-      const frames = parseDataFrames(written);
-      expect(frames.length).toBeGreaterThanOrEqual(2);
-      expect(frames[frames.length - 1]).toBe('[DONE]');
-      const terminal = frames[frames.length - 2] as Record<string, unknown>;
-      expect(terminal.error).toEqual({
-        message: 'Provider stream ended before a terminal finish reason.',
-        type: 'upstream_error',
-      });
-      expect(JSON.stringify(terminal)).not.toContain('"finish_reason":"stop"');
-    }
-
     function createMockStreamResponse(chunks: string[]): Response {
       const encoder = new TextEncoder();
       let index = 0;
@@ -3889,12 +3426,9 @@ describe('ProxyController', () => {
       });
     }
 
-    it.each([
-      ['manifest/auto', 'scored'],
-      ['openai-api/gpt-5-high', 'direct-model'],
-    ])('fails unterminated raw OpenAI-compatible streams for %s', async (modelId, reason) => {
+    it('should pipe streaming responses directly for non-Google', async () => {
       const mockProviderResp = createMockStreamResponse([
-        'data: {"id":"chunk-1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\ndata: [DONE]\n\n',
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
       ]);
 
       proxyService.proxyRequest.mockResolvedValue({
@@ -3909,12 +3443,11 @@ describe('ProxyController', () => {
           model: 'gpt-4o',
           provider: 'OpenAI',
           confidence: 0.8,
-          reason,
+          reason: 'scored',
         },
       });
 
       const req = mockRequest({
-        model: modelId,
         messages: [{ role: 'user', content: 'test' }],
         stream: true,
       });
@@ -3925,8 +3458,6 @@ describe('ProxyController', () => {
       expect(headers['Content-Type']).toBe('text/event-stream');
       expect(headers['X-Manifest-Tier']).toBe('standard');
       expect(written.length).toBeGreaterThan(0);
-      expectUpstreamErrorBeforeDone(written);
-      expect(proxyService.proxyRequest.mock.calls[0][0].body.model).toBe(modelId);
     });
 
     it('should transform Anthropic streaming through createAnthropicStreamTransformer', async () => {
@@ -4015,7 +3546,7 @@ describe('ProxyController', () => {
       expect(written.some((w) => w.includes('delta'))).toBe(true);
     });
 
-    it('should transform ChatGPT streaming through createChatGptStreamTransformer', async () => {
+    it('should transform ChatGPT streaming through the per-stream transformer', async () => {
       const mockProviderResp = createMockStreamResponse([
         'event: response.output_text.delta\ndata: {"delta":"hi"}\n\n',
       ]);
@@ -4036,13 +3567,12 @@ describe('ProxyController', () => {
         },
       });
 
-      const transformer = {
-        transform: jest.fn().mockReturnValue('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
-        finalize: jest.fn().mockReturnValue(null),
-      };
-      (providerClient as Record<string, jest.Mock>).createChatGptStreamTransformer.mockReturnValue(
-        transformer,
-      );
+      const transformer = jest
+        .fn()
+        .mockReturnValue('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n');
+      (providerClient as Record<string, jest.Mock>).createChatGptStreamTransformer = jest
+        .fn()
+        .mockReturnValue(transformer);
 
       const req = mockRequest({
         messages: [{ role: 'user', content: 'test' }],
@@ -4052,10 +3582,7 @@ describe('ProxyController', () => {
 
       await controller.chatCompletions(req as never, res as never);
 
-      expect(
-        (providerClient as Record<string, jest.Mock>).createChatGptStreamTransformer,
-      ).toHaveBeenCalledWith('gpt-5.3-codex');
-      expect(transformer.transform).toHaveBeenCalled();
+      expect(transformer).toHaveBeenCalled();
       expect(written.some((w) => w.includes('delta'))).toBe(true);
     });
 

@@ -1,7 +1,6 @@
-import { BadRequestException, Injectable, Logger, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ResolveService } from '../resolve/resolve.service';
-import { ModelAliasService, type ModelAliasResolution } from '../model-aliases/model-alias.service';
 import { ModelDiscoveryService } from '../../model-discovery/model-discovery.service';
 import { ProviderKeyService } from '../routing-core/provider-key.service';
 import { OpenaiOauthService } from '../oauth/openai/openai-oauth.service';
@@ -78,12 +77,6 @@ type ResolvedRouting = Awaited<ReturnType<ResolveService['resolve']>> & {
   explicit_model_unavailable?: string;
 };
 
-interface RoutingDecision {
-  resolved: ResolvedRouting;
-  requestParams?: RequestParamDefaults | null;
-  scopeKey?: string;
-}
-
 /**
  * Roles excluded from scoring. AI agents (OpenClaw, Hermes, and
  * similar tools) inject a large, keyword-rich system prompt with every
@@ -93,8 +86,6 @@ interface RoutingDecision {
  */
 const SCORING_EXCLUDED_ROLES = new Set(['system', 'developer']);
 const SCORING_RECENT_MESSAGES = 10;
-const REASONING_EFFORT_HEADER = 'x-manifest-reasoning-effort';
-const MANIFEST_MODEL_ID_AUTO = 'manifest/auto';
 
 export interface RoutingMeta {
   tier: TierSlot | 'direct';
@@ -148,6 +139,13 @@ export interface RoutingMeta {
    */
   primaryTenantProviderId?: string | null;
   /**
+   * The primary's connection label when a fallback ultimately succeeded.
+   * Same reason as primaryTenantProviderId: `provider_key_label` then names the
+   * winning fallback's connection, and the primary-failure row must not inherit
+   * a label belonging to a different key.
+   */
+  primaryKeyLabel?: string;
+  /**
    * Effective request body parameters for this attempt: client body values,
    * route-scoped `agent_model_params`, and MPS provider param defaults.
    * Persisted on `agent_messages.request_params` so the dashboard can show
@@ -166,9 +164,9 @@ export interface RoutingMeta {
   primaryAttempt?: ProviderAttemptRef;
   /** Whether the primary/retry actually crossed the provider transport boundary. */
   primaryProviderCallStarted?: boolean;
-  /** Internal identity of the original failure before an Auto-fix retry. */
+  /** Internal identity of the original failure before an Autofix retry. */
   autofixOriginalAttempt?: ProviderAttemptRef;
-  /** Whether the pre-Auto-fix original actually invoked provider transport. */
+  /** Whether the pre-Autofix original actually invoked provider transport. */
   autofixOriginalProviderCallStarted?: boolean;
 }
 
@@ -176,11 +174,11 @@ export interface ProxyResult {
   forward: ForwardResult;
   meta: RoutingMeta;
   failedFallbacks?: FailedFallback[];
-  /** Auto-fix audit when a repairable failure was sent to the healing service. */
+  /** Autofix audit when a repairable failure was sent to the healing service. */
   autofix?: AutofixRecord;
 }
 
-/** Everything Auto-fix's reforward needs to re-send a healed body to a provider. */
+/** Everything Autofix's reforward needs to re-send a healed body to a provider. */
 interface HealedReforwardContext {
   agentId: string;
   tenantId: string;
@@ -213,7 +211,6 @@ export class ProxyService {
 
   constructor(
     private readonly resolveService: ResolveService,
-    private readonly modelAliasService: ModelAliasService,
     private readonly modelDiscovery: ModelDiscoveryService,
     private readonly providerKeyService: ProviderKeyService,
     private readonly openaiOauth: OpenaiOauthService,
@@ -263,7 +260,7 @@ export class ProxyService {
       return buildFriendlyResponse(limitMessage, body.stream === true, 'limit_exceeded', 'M200');
     }
 
-    const routingDecision = await this.resolveRouting(
+    const resolved = await this.resolveRouting(
       agentId,
       tenantId,
       routingSource,
@@ -273,7 +270,6 @@ export class ProxyService {
       headers,
       apiMode,
     );
-    const resolved = routingDecision.resolved;
     const responseMode = resolved.response_mode ?? DEFAULT_RESPONSE_MODE;
     const stream = body.stream === true || responseMode === 'stream';
     if (!resolved.route) {
@@ -296,7 +292,6 @@ export class ProxyService {
       provider: route.provider,
       auth_type: route.authType,
       provider_key_label: route.keyLabel ?? undefined,
-      credential_mode: resolved.credential_mode,
     });
 
     const primaryModel = normalizeProviderModel(route.provider, route.model);
@@ -317,13 +312,9 @@ export class ProxyService {
       specificityCategory: resolved.specificity_category,
       headerTierId: resolved.header_tier_id,
     });
-    const effectiveScopeKey = routingDecision.scopeKey ?? scopeKey;
-    const paramMergeContext: ParamMergeContext = {
-      agentId,
-      scopeKey: effectiveScopeKey,
-      requestParams: routingDecision.requestParams,
-    };
-    const effectiveParamMergeContext = paramMergeContext;
+    const paramMergeContext: ParamMergeContext | undefined = explicitModelOverride
+      ? undefined
+      : { agentId, scopeKey };
 
     // Snapshot of which known param keys are *effectively in play* for the
     // primary attempt. Stored on every `agent_messages` row recorded for
@@ -334,18 +325,18 @@ export class ProxyService {
     // Independent reads — the params row and the provider spec list don't
     // depend on each other, so fetch them concurrently to shave a round-trip
     // off the cold path before forwarding.
-    const [primaryModelParams, primarySpecs] = await Promise.all([
-      routingDecision.requestParams !== undefined
-        ? Promise.resolve(routingDecision.requestParams)
-        : this.modelParamsService.get(
+    const [primaryModelParams, primarySpecs] = explicitModelOverride
+      ? ([null, []] as const)
+      : await Promise.all([
+          this.modelParamsService.get(
             agentId,
-            effectiveScopeKey,
+            scopeKey,
             route.provider,
             route.authType,
             primaryModel,
           ),
-      this.providerParamSpecs.getSpecs(route.provider, route.authType, primaryModel),
-    ]);
+          this.providerParamSpecs.getSpecs(route.provider, route.authType, primaryModel),
+        ]);
     const primaryRequestParams = explicitModelOverride
       ? null
       : snapshotRequestParams({
@@ -386,6 +377,7 @@ export class ProxyService {
         model: primaryModel,
         authType: route.authType,
         tenantProviderId: credentials.tenantProviderId,
+        keyLabel: route.keyLabel ?? undefined,
         presentation: credentialFailure,
         startProviderAttempt: willRunChain ? startProviderAttempt : undefined,
       });
@@ -409,6 +401,7 @@ export class ProxyService {
           apiMode,
           paramMergeContext,
           primaryTenantProviderId: credentials.tenantProviderId,
+          primaryKeyLabel: route.keyLabel ?? undefined,
           startProviderAttempt,
           credentialDashboardUrl: dashboardUrl,
         });
@@ -436,23 +429,23 @@ export class ProxyService {
       agentId,
       tenantId,
       rawApiKey: credentials.rawApiKey,
-      providerKeyLabel: credentials.keyLabel ?? route.keyLabel ?? undefined,
-      credentialAlternates: credentials.alternateKeyLabels,
-      credentialMode: resolved.credential_mode,
+      // Always the selected row's label (see resolveRouteCredentials), so the
+      // forwarded connection and the recorded one can never diverge.
+      providerKeyLabel: credentials.keyLabel,
       authType: route.authType,
       apiMode,
       resourceUrl: credentials.resourceUrl,
       providerRegion: credentials.providerRegion,
       signatureLookup,
       thinkingLookup,
-      paramMergeContext: effectiveParamMergeContext,
+      paramMergeContext,
       tenantProviderId: credentials.tenantProviderId,
       startProviderAttempt,
     });
     const autofixOriginalAttempt = forward.attempt;
     const autofixOriginalProviderCallStarted = forward.providerCallStarted;
 
-    // Auto-fix runs BEFORE the fallback chain: heal a repairable 4xx and retry
+    // Autofix runs BEFORE the fallback chain: heal a repairable 4xx and retry
     // the patched request, so a fixable request isn't sprayed across every
     // fallback provider. A no-op unless the agent opted in and the forward
     // failed with a repairable status, so successful traffic is untouched.
@@ -488,12 +481,9 @@ export class ProxyService {
                 apiKey: credentials.apiKey,
                 rawApiKey: credentials.rawApiKey,
                 model: primaryModel,
-                // Use the resolved (unpinned-subscription-pinned) label so the
-                // healed-retry row stamps the same connection its
-                // tenant_provider_id points at — otherwise a null/blank label
-                // rides next to the selected connection id (the divergence the
-                // primary forward already avoids).
-                keyLabel: credentials.keyLabel ?? route.keyLabel ?? undefined,
+                // The selected row's label, so the healed-retry row stamps the
+                // same connection its tenant_provider_id points at.
+                keyLabel: credentials.keyLabel,
                 authType: route.authType,
                 resourceUrl: credentials.resourceUrl,
                 providerRegion: credentials.providerRegion,
@@ -512,7 +502,7 @@ export class ProxyService {
       !explicitModelOverride &&
       !forward.response.ok &&
       shouldTriggerFallback(forward.response.status) &&
-      effectiveParamMergeContext
+      paramMergeContext
     ) {
       const fallbackResult = await this.tryFallbackChain({
         agentId,
@@ -530,8 +520,9 @@ export class ProxyService {
         signatureLookup,
         thinkingLookup,
         apiMode,
-        paramMergeContext: effectiveParamMergeContext,
+        paramMergeContext,
         primaryTenantProviderId: credentials.tenantProviderId,
+        primaryKeyLabel: credentials.keyLabel,
         startProviderAttempt,
         credentialDashboardUrl: dashboardUrl,
       });
@@ -560,8 +551,6 @@ export class ProxyService {
             statusText: forward.response.statusText,
             headers: forward.response.headers,
           }),
-          tenantProviderId: forward.tenantProviderId,
-          providerKeyLabel: forward.providerKeyLabel,
           attempt: forward.attempt,
           isGoogle: forward.isGoogle,
           isAnthropic: forward.isAnthropic,
@@ -583,8 +572,10 @@ export class ProxyService {
           forward: peeked,
           meta: this.buildBaseMeta(resolved, primaryModel, {
             request_params: primaryRequestParams,
-            provider_key_label: forward.providerKeyLabel ?? credentials.keyLabel,
-            tenantProviderId: forward.tenantProviderId ?? credentials.tenantProviderId,
+            tenantProviderId: credentials.tenantProviderId,
+            // Label of the row actually selected — a stale pin resolves to the
+            // default key, and the recorded label must follow the key used.
+            provider_key_label: credentials.keyLabel,
             attempt: forward.attempt,
             providerCallStarted: forward.providerCallStarted,
             autofixOriginalAttempt,
@@ -603,8 +594,6 @@ export class ProxyService {
           JSON.stringify({ error: { message: `Stream warmup failed: ${warmup.message}` } }),
           { status: 502, headers: { 'content-type': 'application/json' } },
         ),
-        tenantProviderId: forward.tenantProviderId,
-        providerKeyLabel: forward.providerKeyLabel,
         attempt: forward.attempt,
         isGoogle: forward.isGoogle,
         isAnthropic: forward.isAnthropic,
@@ -620,7 +609,7 @@ export class ProxyService {
         retryWireBody: forward.retryWireBody,
         providerCallStarted: forward.providerCallStarted,
       };
-      if (!explicitModelOverride && effectiveParamMergeContext) {
+      if (!explicitModelOverride && paramMergeContext) {
         const fallbackResult = await this.tryFallbackChain({
           agentId,
           tenantId,
@@ -637,8 +626,9 @@ export class ProxyService {
           signatureLookup,
           thinkingLookup,
           apiMode,
-          paramMergeContext: effectiveParamMergeContext,
+          paramMergeContext,
           primaryTenantProviderId: credentials.tenantProviderId,
+          primaryKeyLabel: credentials.keyLabel,
           startProviderAttempt,
           credentialDashboardUrl: dashboardUrl,
         });
@@ -663,8 +653,8 @@ export class ProxyService {
         forward: syntheticForward,
         meta: this.buildBaseMeta(resolved, primaryModel, {
           request_params: primaryRequestParams,
-          provider_key_label: forward.providerKeyLabel ?? credentials.keyLabel,
-          tenantProviderId: forward.tenantProviderId ?? credentials.tenantProviderId,
+          tenantProviderId: credentials.tenantProviderId,
+          provider_key_label: credentials.keyLabel,
           attempt: forward.attempt,
           providerCallStarted: forward.providerCallStarted,
           autofixOriginalAttempt,
@@ -680,8 +670,8 @@ export class ProxyService {
       forward,
       meta: this.buildBaseMeta(resolved, primaryModel, {
         request_params: primaryRequestParams,
-        provider_key_label: forward.providerKeyLabel ?? credentials.keyLabel,
-        tenantProviderId: forward.tenantProviderId ?? credentials.tenantProviderId,
+        tenantProviderId: credentials.tenantProviderId,
+        provider_key_label: credentials.keyLabel,
         attempt: forward.attempt,
         providerCallStarted: forward.providerCallStarted,
         autofixOriginalAttempt,
@@ -713,7 +703,7 @@ export class ProxyService {
   }
 
   /**
-   * Re-send an Auto-fix-healed wire body. Same model → use the exact resolved
+   * Re-send an Autofix-healed wire body. Same model → use the exact resolved
    * transport without re-merging or translating. Model changed (e.g. an
    * unknown-model fix) → re-resolve so it reaches the right provider/key (M5).
    */
@@ -732,8 +722,8 @@ export class ProxyService {
       model: ctx.model,
       signal: ctx.signal,
       authType: ctx.authType,
-      providerKeyLabel: ctx.keyLabel,
       tenantProviderId: ctx.tenantProviderId,
+      providerKeyLabel: ctx.keyLabel,
       startProviderAttempt: ctx.startProviderAttempt,
     });
   }
@@ -744,7 +734,7 @@ export class ProxyService {
     ctx: HealedReforwardContext,
   ): Promise<ForwardResult> {
     const resolveChatBody = this.createChatBodyResolver(ctx.apiMode, healedBody);
-    const routingDecision = await this.resolveRouting(
+    const resolved = await this.resolveRouting(
       ctx.agentId,
       ctx.tenantId,
       healedBody,
@@ -754,7 +744,6 @@ export class ProxyService {
       ctx.headers,
       ctx.apiMode,
     );
-    const resolved = routingDecision.resolved;
     const route = resolved.route;
     if (!route) {
       return this.retryHealedOnOriginalTransport(
@@ -768,7 +757,6 @@ export class ProxyService {
       provider: route.provider,
       auth_type: route.authType,
       provider_key_label: route.keyLabel ?? undefined,
-      credential_mode: resolved.credential_mode,
     });
     if (!credentials.ok) {
       return this.retryHealedOnOriginalTransport(
@@ -785,7 +773,6 @@ export class ProxyService {
       specificityCategory: resolved.specificity_category,
       headerTierId: resolved.header_tier_id,
     });
-    const effectiveScopeKey = routingDecision.scopeKey ?? scopeKey;
     return this.fallbackService.tryForwardToProvider({
       provider: route.provider,
       apiKey: credentials.apiKey,
@@ -799,24 +786,16 @@ export class ProxyService {
       agentId: ctx.agentId,
       tenantId: ctx.tenantId,
       rawApiKey: credentials.rawApiKey,
-      // Resolved label (pins an unpinned subscription to the selected row) so
-      // the recorded connection matches credentials.tenantProviderId.
-      providerKeyLabel: credentials.keyLabel ?? route.keyLabel ?? undefined,
-      credentialAlternates: credentials.alternateKeyLabels,
-      credentialMode: resolved.credential_mode,
+      // Selected row's label so the recorded connection matches
+      // credentials.tenantProviderId.
+      providerKeyLabel: credentials.keyLabel,
       authType: route.authType,
       apiMode: ctx.apiMode,
       resourceUrl: credentials.resourceUrl,
       providerRegion: credentials.providerRegion,
       signatureLookup: ctx.signatureLookup,
       thinkingLookup: ctx.thinkingLookup,
-      paramMergeContext: explicitModelOverride
-        ? undefined
-        : {
-            agentId: ctx.agentId,
-            scopeKey: effectiveScopeKey,
-            requestParams: routingDecision.requestParams,
-          },
+      paramMergeContext: explicitModelOverride ? undefined : { agentId: ctx.agentId, scopeKey },
       tenantProviderId: credentials.tenantProviderId,
       startProviderAttempt: ctx.startProviderAttempt,
     });
@@ -846,8 +825,8 @@ export class ProxyService {
       model: healedModel,
       signal: ctx.signal,
       authType: ctx.authType,
-      providerKeyLabel: ctx.keyLabel,
       tenantProviderId: ctx.tenantProviderId,
+      providerKeyLabel: ctx.keyLabel,
       startProviderAttempt: ctx.startProviderAttempt,
     });
   }
@@ -855,7 +834,7 @@ export class ProxyService {
   /** Synthetic failed forward so a heal that can't be re-routed surfaces the original error. */
   private autofixReforwardError(reason: string): ForwardResult {
     return {
-      response: new Response(JSON.stringify({ error: { message: `Auto-fix: ${reason}` } }), {
+      response: new Response(JSON.stringify({ error: { message: `Autofix: ${reason}` } }), {
         status: 502,
         headers: { 'content-type': 'application/json' },
       }),
@@ -916,44 +895,23 @@ export class ProxyService {
     specificityOverride: ProxyRequestOptions['specificityOverride'],
     headers: ProxyRequestOptions['headers'],
     apiMode: ProxyApiMode,
-  ): Promise<RoutingDecision> {
-    const aliasDecision = await this.modelAliasService.resolveModelRequest(
-      agentId,
-      tenantId,
-      body.model,
-      { includeRawDirect: false },
-    );
-    if (aliasDecision.kind === 'resolved') {
-      const requestParams = await this.applyReasoningEffortHeader(aliasDecision, headers);
-      return {
-        resolved: aliasDecision.resolved,
-        requestParams,
-        scopeKey: aliasDecision.scopeKey,
-      };
-    }
-
-    const requestedModel = typeof body.model === 'string' ? body.model.trim() : undefined;
-    const requestedModelKey = requestedModel?.toLowerCase();
-    // Anthropic Messages requests require a provider-native model field; only
-    // OpenAI-compatible surfaces use /v1/models IDs as route overrides.
-    if (
-      requestedModel &&
-      requestedModelKey !== OPENAI_MODEL_ID_AUTO &&
-      requestedModelKey !== MANIFEST_MODEL_ID_AUTO
-    ) {
+  ): Promise<ResolvedRouting> {
+    const requestedModel = typeof body.model === 'string' ? body.model : undefined;
+    // Every public proxy surface treats a concrete model as an explicit route.
+    // The resolver accepts both provider-qualified /v1/models IDs and the
+    // unambiguous provider-native IDs required by Anthropic clients.
+    if (requestedModel && requestedModel !== OPENAI_MODEL_ID_AUTO) {
       const explicit = await this.resolveExplicitModel(agentId, tenantId, requestedModel, headers);
       if (explicit) return explicit;
       return {
-        resolved: {
-          tier: 'default' as const,
-          route: null,
-          fallback_routes: null,
-          response_mode: DEFAULT_RESPONSE_MODE,
-          confidence: 0,
-          score: 0,
-          reason: 'default' as const,
-          explicit_model_unavailable: requestedModel,
-        },
+        tier: 'default' as const,
+        route: null,
+        fallback_routes: null,
+        response_mode: DEFAULT_RESPONSE_MODE,
+        confidence: 0,
+        score: 0,
+        reason: 'default' as const,
+        explicit_model_unavailable: requestedModel,
       };
     }
 
@@ -990,32 +948,7 @@ export class ProxyService {
           headers,
         ));
 
-    return { resolved: baseResolved };
-  }
-
-  private async applyReasoningEffortHeader(
-    aliasDecision: Extract<ModelAliasResolution, { kind: 'resolved' }>,
-    headers: ProxyRequestOptions['headers'],
-  ): Promise<RequestParamDefaults | null | undefined> {
-    const effort = singleHeaderValue(headers, REASONING_EFFORT_HEADER);
-    if (!effort) return aliasDecision.requestParams;
-    if (!aliasDecision.acceptsReasoningEffortHeader || !aliasDecision.resolved.route) {
-      return aliasDecision.requestParams;
-    }
-
-    const headerParams = await this.modelAliasService.requestParamsForReasoningEffort(
-      aliasDecision.resolved.route,
-      effort,
-    );
-    const existingEffort = extractReasoningEffort(aliasDecision.requestParams);
-    const headerEffort = extractReasoningEffort(headerParams) ?? effort.trim().toLowerCase();
-    if (existingEffort && existingEffort.toLowerCase() !== headerEffort) {
-      throw new BadRequestException(
-        `Model alias already fixes reasoning effort "${existingEffort}". Use a matching header or choose a base alias.`,
-      );
-    }
-    if (existingEffort) return aliasDecision.requestParams;
-    return mergeRequestParams(aliasDecision.requestParams ?? null, headerParams);
+    return baseResolved;
   }
 
   /**
@@ -1039,54 +972,15 @@ export class ProxyService {
     tenantId: string,
     requestedModel: string,
     headers: ProxyRequestOptions['headers'],
-  ): Promise<RoutingDecision | null> {
+  ): Promise<ResolvedRouting | null> {
     if (headers) {
       const headerTier = await this.resolveService.resolveHeaderTier(agentId, tenantId, headers);
-      if (headerTier) return { resolved: headerTier };
+      if (headerTier) return headerTier;
     }
 
     const models = await this.modelDiscovery.getModelsForAgent(tenantId, agentId);
-    const directRoute = routeForOpenAiModelId(requestedModel, models);
-    if (directRoute) {
-      const resolved = {
-        tier: 'default' as const,
-        route: directRoute,
-        fallback_routes: null,
-        response_mode: DEFAULT_RESPONSE_MODE,
-        confidence: 1,
-        score: 0,
-        reason: 'default' as const,
-        explicit_model_override: true,
-      };
-      const requestParams = await this.applyReasoningEffortHeader(
-        {
-          kind: 'resolved',
-          resolved,
-          requestParams: undefined,
-          acceptsReasoningEffortHeader: true,
-        },
-        headers,
-      );
-      return {
-        resolved,
-        requestParams,
-        scopeKey: scopeKeyForDirectRoute(directRoute),
-      };
-    }
-
-    const rawDirectDecision = await this.modelAliasService.resolveModelRequest(
-      agentId,
-      tenantId,
-      requestedModel,
-      { includeRawDirect: true },
-    );
-    if (rawDirectDecision.kind === 'resolved') {
-      return {
-        resolved: rawDirectDecision.resolved,
-        requestParams: await this.applyReasoningEffortHeader(rawDirectDecision, headers),
-        scopeKey: rawDirectDecision.scopeKey,
-      };
-    }
+    const catalogRoute = routeForOpenAiModelId(requestedModel, models);
+    if (catalogRoute) return this.explicitRouting(agentId, tenantId, catalogRoute);
 
     // A bare ID already present under multiple connections is ambiguous, not
     // undiscovered. Preserve M302 instead of silently picking an auth type.
@@ -1103,7 +997,8 @@ export class ProxyService {
       );
       return null;
     }
-    return { resolved: this.explicitRouting(route) };
+
+    return this.explicitRouting(agentId, tenantId, route);
   }
 
   /**
@@ -1153,10 +1048,21 @@ export class ProxyService {
     return connected.length === 1 ? connected[0].route : null;
   }
 
-  private explicitRouting(route: NonNullable<ResolvedRouting['route']>): ResolvedRouting {
+  /**
+   * The single funnel for both explicit-model branches (catalog match and
+   * uncatalogued passthrough). Neither branch knows about connections, so the
+   * route arrives without a `keyLabel` and would resolve to the first key of
+   * the provider. Pin it here — through the same logic tier routing uses — so
+   * an operator's connection choice survives a request that names a model.
+   */
+  private async explicitRouting(
+    agentId: string,
+    tenantId: string,
+    route: NonNullable<ResolvedRouting['route']>,
+  ): Promise<ResolvedRouting> {
     return {
       tier: 'default' as const,
-      route,
+      route: await this.resolveService.pinRouteKeyLabel(agentId, tenantId, route),
       fallback_routes: null,
       response_mode: DEFAULT_RESPONSE_MODE,
       confidence: 1,
@@ -1183,12 +1089,7 @@ export class ProxyService {
   private resolveCredentials(
     agentId: string,
     tenantId: string,
-    resolved: {
-      provider: string;
-      auth_type?: AuthType;
-      provider_key_label?: string;
-      credential_mode?: ResolvedRouting['credential_mode'];
-    },
+    resolved: { provider: string; auth_type?: AuthType; provider_key_label?: string },
   ): Promise<ResolvedRouteCredentials> {
     return resolveRouteCredentials(this.routeCredentialDeps(), {
       agentId,
@@ -1196,7 +1097,6 @@ export class ProxyService {
       provider: resolved.provider,
       authType: resolved.auth_type,
       providerKeyLabel: resolved.provider_key_label,
-      credentialMode: resolved.credential_mode,
     });
   }
 
@@ -1243,6 +1143,8 @@ export class ProxyService {
     /** Primary connection id, carried so a fallback-success flow can attribute
      * its recorded primary-failure row to the connection that actually failed. */
     primaryTenantProviderId: string | null;
+    /** Label of that same primary connection, for the same attribution reason. */
+    primaryKeyLabel?: string;
     startProviderAttempt?: StartProviderAttempt;
     /** Dashboard URL embedded in mid-chain M100/M102 credential failure bodies. */
     credentialDashboardUrl?: string;
@@ -1274,7 +1176,6 @@ export class ProxyService {
     const primaryStatus = forward.response.status;
     const primaryErrorBody = await forward.response.text();
     await forward.attempt?.finishRecording?.(recordingResponseFromText(primaryErrorBody));
-    const primaryTenantProviderId = forward.tenantProviderId ?? args.primaryTenantProviderId;
     const primaryProvider = resolved.route?.provider;
     const primaryAuth = resolved.route?.authType;
     const { success, failures } = await this.fallbackService.tryFallbacks(
@@ -1297,7 +1198,6 @@ export class ProxyService {
       args.startProviderAttempt,
       args.credentialDashboardUrl,
       providerCacheKey,
-      resolved.credential_mode,
     );
 
     this.recordTierIfScoring(sessionMomentumKey, resolved.tier);
@@ -1309,17 +1209,15 @@ export class ProxyService {
       // → different lookup → different snapshot, matching the wire. The two
       // lookups are independent, so resolve them together.
       const [fallbackModelParams, fallbackSpecs] = await Promise.all([
-        args.paramMergeContext.requestParams !== undefined
-          ? Promise.resolve(args.paramMergeContext.requestParams)
-          : success.authType
-            ? this.modelParamsService.get(
-                args.paramMergeContext.agentId,
-                args.paramMergeContext.scopeKey,
-                success.provider,
-                success.authType,
-                success.model,
-              )
-            : null,
+        success.authType
+          ? this.modelParamsService.get(
+              args.paramMergeContext.agentId,
+              args.paramMergeContext.scopeKey,
+              success.provider,
+              success.authType,
+              success.model,
+            )
+          : null,
         success.authType
           ? this.providerParamSpecs.getSpecs(success.provider, success.authType, success.model)
           : [],
@@ -1338,13 +1236,14 @@ export class ProxyService {
           // buildBaseMeta would otherwise stamp the PRIMARY route's label
           // next to the fallback's tenant_provider_id.
           provider_key_label: success.keyLabel,
+          primaryKeyLabel: args.primaryKeyLabel,
           fallbackFromModel: primaryModel,
           fallbackIndex: success.fallbackIndex,
           primaryErrorStatus: primaryStatus,
           primaryErrorBody,
           primaryProvider,
           primaryAuthType: primaryAuth,
-          primaryTenantProviderId,
+          primaryTenantProviderId: args.primaryTenantProviderId,
           primaryAttempt: forward.attempt,
           primaryProviderCallStarted: forward.providerCallStarted,
           attempt: success.forward.attempt,
@@ -1404,7 +1303,8 @@ export class ProxyService {
       meta: this.buildBaseMeta(resolved, primaryModel, {
         request_params: exhaustedRequestParams,
         // Exhausted chain is recorded against the primary connection.
-        tenantProviderId: primaryTenantProviderId,
+        tenantProviderId: args.primaryTenantProviderId,
+        provider_key_label: args.primaryKeyLabel ?? resolved.route?.keyLabel ?? undefined,
         primaryAttempt: forward.attempt,
         primaryProviderCallStarted: forward.providerCallStarted,
         attempt: failures[failures.length - 1]?.attempt ?? forward.attempt,
@@ -1420,14 +1320,13 @@ export class ProxyService {
     model: string,
     overrides: Partial<RoutingMeta> = {},
   ): RoutingMeta {
-    const directOverride =
-      resolved.explicit_model_override === true || resolved.reason === 'direct-model';
+    const directOverride = resolved.explicit_model_override === true;
     return {
       tier: directOverride ? 'direct' : resolved.tier,
       model,
       provider: overrides.provider ?? resolved.route?.provider ?? '',
       confidence: resolved.confidence,
-      reason: resolved.explicit_model_override === true ? 'direct' : resolved.reason,
+      reason: directOverride ? 'direct' : resolved.reason,
       auth_type: resolved.route?.authType,
       specificity_category: resolved.specificity_category,
       provider_key_label: resolved.route?.keyLabel ?? undefined,
@@ -1559,77 +1458,4 @@ function sanitizeNullContent(messages: Record<string, unknown>[]): void {
   for (const msg of messages) {
     if (msg && typeof msg === 'object' && msg.content === null) msg.content = '';
   }
-}
-
-function singleHeaderValue(
-  headers: ProxyRequestOptions['headers'],
-  key: string,
-): string | undefined {
-  const value = headers?.[key];
-  if (Array.isArray(value)) return value[0]?.trim() || undefined;
-  return typeof value === 'string' ? value.trim() || undefined : undefined;
-}
-
-function extractReasoningEffort(params: RequestParamDefaults | null | undefined): string | null {
-  if (!params) return null;
-  const flat = params.reasoning_effort;
-  if (typeof flat === 'string') return flat;
-  const reasoning = params.reasoning;
-  if (isRecord(reasoning)) {
-    const effort = reasoning.effort;
-    if (typeof effort === 'string') return effort;
-  }
-  const generationConfig = params.generationConfig;
-  if (isRecord(generationConfig)) {
-    const thinkingConfig = generationConfig.thinkingConfig;
-    if (isRecord(thinkingConfig)) {
-      const thinkingLevel = thinkingConfig.thinkingLevel;
-      if (typeof thinkingLevel === 'string') return thinkingLevel;
-    }
-  }
-  return null;
-}
-
-function mergeRequestParams(
-  base: RequestParamDefaults | null,
-  overrides: RequestParamDefaults,
-): RequestParamDefaults {
-  if (!base) return structuredCloneRecord(overrides) as RequestParamDefaults;
-  return deepMergeRecords(base, overrides) as RequestParamDefaults;
-}
-
-function scopeKeyForDirectRoute(route: {
-  provider: string;
-  authType: AuthType;
-  model: string;
-}): string {
-  return `direct-model:${route.provider}:${route.authType}:${normalizeProviderModel(
-    route.provider,
-    route.model,
-  )}`;
-}
-
-function deepMergeRecords(
-  base: Record<string, unknown>,
-  overrides: Record<string, unknown>,
-): Record<string, unknown> {
-  const out = structuredCloneRecord(base);
-  for (const [key, value] of Object.entries(overrides)) {
-    if (isRecord(value) && isRecord(out[key])) {
-      out[key] = deepMergeRecords(out[key] as Record<string, unknown>, value);
-    } else {
-      out[key] = value;
-    }
-  }
-  return out;
-}
-
-function structuredCloneRecord<T extends Record<string, unknown>>(
-  value: T,
-): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

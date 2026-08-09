@@ -184,10 +184,12 @@ export function toggleComplexity(agentName: string) {
   });
 }
 
-/* -- Routing: Auto-fix -- */
+/* -- Routing: Autofix -- */
 
 export interface AutofixConfig {
   enabled: boolean;
+  /** True once the self-hosted install consented (modal hidden thereafter). */
+  consented?: boolean;
 }
 
 export function getAutofix(agentName: string) {
