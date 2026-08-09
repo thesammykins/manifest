@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@solidjs/testing-library';
-
-vi.mock('solid-js/web', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('solid-js/web')>();
-  return { ...mod, Portal: (props: any) => props.children };
-});
+import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 
 const mockResetHeaderTier = vi.fn();
 const mockSetHeaderTierFallbacks = vi.fn();
@@ -1519,7 +1514,7 @@ describe('HeaderTierCard', () => {
     const deepseekProviders = [
       { ...connectedProviders[0], provider: 'deepseek', authType: 'api_key' as const },
     ];
-    const { container, getByRole } = render(() => (
+    const { container } = render(() => (
       <HeaderTierCard
         agentName="demo"
         tier={tierDeepseek}
@@ -1536,9 +1531,17 @@ describe('HeaderTierCard', () => {
       '[aria-label="Configure model parameters for DeepSeek V4"]',
     ) as HTMLButtonElement;
     fireEvent.click(btn);
-    const toggle = await waitFor(() => getByRole('button', { name: /Thinking mode/ }));
+    await waitFor(() => {
+      expect(getModelParamSpecs).toHaveBeenCalledWith(
+        'demo',
+        'deepseek',
+        'api_key',
+        'deepseek-v4',
+      );
+    });
+    const toggle = await screen.findByRole('button', { name: /Thinking mode/ });
     fireEvent.click(toggle);
-    fireEvent.click(getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => {
       expect(setModelParams).toHaveBeenCalledWith(
         'header:ht-1',

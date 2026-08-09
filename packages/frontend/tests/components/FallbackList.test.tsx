@@ -2,11 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import type { ProviderParamSpecCatalog } from 'manifest-shared';
 
-vi.mock('solid-js/web', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('solid-js/web')>();
-  return { ...mod, Portal: (props: any) => props.children };
-});
-
 import { getModelParamSpecs } from '../../src/services/api/model-params.js';
 
 const mockSetFallbacks = vi.fn();
@@ -1207,7 +1202,7 @@ describe('FallbackList', () => {
       vi.mocked(getModelParamSpecs).mockResolvedValue(modelParamSpecs[0].params);
       const setModelParams = vi.fn().mockResolvedValue(undefined);
       const getModelParams = vi.fn().mockReturnValue(null);
-      const { container, getByRole } = render(() => (
+      const { container } = render(() => (
         <FallbackList
           {...defaultProps}
           fallbacks={['deepseek-v4-flash']}
@@ -1224,11 +1219,25 @@ describe('FallbackList', () => {
       // attribute (Solid lazily reads child props — `setParams` only fires
       // when the affordance calls it on save).
       fireEvent.click(btn!);
-      const toggle = await waitFor(() => getByRole('button', { name: /Thinking mode/ }));
-      fireEvent.click(toggle);
-      fireEvent.click(getByRole('button', { name: 'Save' }));
       await waitFor(() => {
-        expect(setModelParams).toHaveBeenCalled();
+        expect(getModelParamSpecs).toHaveBeenCalledWith(
+          'test-agent',
+          'deepseek',
+          'api_key',
+          'deepseek-v4-flash',
+        );
+      });
+      const toggle = await screen.findByRole('button', { name: /Thinking mode/ });
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => {
+        expect(setModelParams).toHaveBeenCalledWith(
+          'tier:tier-1',
+          'deepseek',
+          'api_key',
+          'deepseek-v4-flash',
+          { thinking: { type: 'disabled' } },
+        );
       });
     });
 
