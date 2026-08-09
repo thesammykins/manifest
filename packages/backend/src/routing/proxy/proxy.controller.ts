@@ -352,12 +352,13 @@ export class ProxyController {
     models: Awaited<ReturnType<ModelDiscoveryService['getModelsForAgent']>>,
   ): Promise<number | null> {
     const routeChains = await this.resolveService.getAvailableRouteChains(agentId, tenantId);
-    const routedContexts: number[] = [];
-    for (const chain of routeChains) {
-      const routeContext = contextForRouteChain(chain.primaryRoute, chain.fallbackRoutes, models);
-      if (routeContext !== null) routedContexts.push(routeContext);
+    if (routeChains.length > 0) {
+      return knownContextMinimum(
+        routeChains.map((chain) =>
+          contextForRouteChain(chain.primaryRoute, chain.fallbackRoutes, models),
+        ),
+      );
     }
-    if (routeChains.length > 0) return minFiniteContext(routedContexts);
     return minFiniteContext(models.map((model) => model.contextWindow));
   }
 
@@ -1236,10 +1237,10 @@ function contextForRouteChain(
   fallbackRoutes: ModelRoute[] | null,
   models: Awaited<ReturnType<ModelDiscoveryService['getModelsForAgent']>>,
 ): number | null {
-  const contexts = [primaryRoute, ...(fallbackRoutes ?? [])]
-    .map((route) => (route ? contextForRoute(route, models) : null))
-    .filter((value): value is number => value !== null);
-  return minFiniteContext(contexts);
+  const routes = [primaryRoute, ...(fallbackRoutes ?? [])].filter(
+    (route): route is ModelRoute => route !== null,
+  );
+  return knownContextMinimum(routes.map((route) => contextForRoute(route, models)));
 }
 
 function contextForRoute(
@@ -1258,6 +1259,13 @@ function contextForRoute(
 function minFiniteContext(values: Array<number | null | undefined>): number | null {
   const finite = values.map(finiteContext).filter((value): value is number => value !== null);
   return finite.length > 0 ? Math.min(...finite) : null;
+}
+
+function knownContextMinimum(values: Array<number | null | undefined>): number | null {
+  const finite = values.map(finiteContext);
+  const known = finite.filter((value): value is number => value !== null);
+  if (known.length === 0 || known.length !== finite.length) return null;
+  return Math.min(...known);
 }
 
 function finiteContext(value: number | null | undefined): number | null {
