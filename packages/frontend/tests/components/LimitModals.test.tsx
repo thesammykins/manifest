@@ -3,11 +3,6 @@ import { render, screen } from '@solidjs/testing-library';
 import { KebabMenu, DeleteRuleModal, RemoveProviderModal } from '../../src/components/LimitModals';
 import type { NotificationRule } from '../../src/services/api';
 
-vi.mock('solid-js/web', async (importOriginal) => {
-  const mod = (await importOriginal()) as Record<string, unknown>;
-  return { ...mod, Portal: (props: any) => props.children };
-});
-
 vi.mock('../../src/components/LimitRuleTable.js', () => ({
   formatThreshold: (r: any) =>
     r.metric_type === 'cost' ? `$${Number(r.threshold).toFixed(2)}` : `${r.threshold} tokens`,
@@ -30,7 +25,7 @@ const makeRule = (overrides: Partial<NotificationRule> = {}): NotificationRule =
 describe('KebabMenu', () => {
   it('renders menu with role="menu" and role="menuitem"', () => {
     const rule = makeRule();
-    const { container } = render(() => (
+    render(() => (
       <KebabMenu
         openMenuId="rule-1"
         menuPos={{ top: 100, left: 200 }}
@@ -39,14 +34,14 @@ describe('KebabMenu', () => {
         onDelete={vi.fn()}
       />
     ));
-    expect(container.querySelector('[role="menu"]')).not.toBeNull();
-    const items = container.querySelectorAll('[role="menuitem"]');
+    expect(screen.getByRole('menu')).toBeTruthy();
+    const items = screen.getAllByRole('menuitem');
     expect(items.length).toBe(2);
   });
 
   it('renders SVGs with aria-hidden', () => {
     const rule = makeRule();
-    const { container } = render(() => (
+    render(() => (
       <KebabMenu
         openMenuId="rule-1"
         menuPos={{ top: 0, left: 0 }}
@@ -55,14 +50,14 @@ describe('KebabMenu', () => {
         onDelete={vi.fn()}
       />
     ));
-    const svgs = container.querySelectorAll('svg');
+    const svgs = document.body.querySelectorAll('svg');
     for (const svg of svgs) {
       expect(svg.getAttribute('aria-hidden')).toBe('true');
     }
   });
 
   it('does not render when openMenuId is null', () => {
-    const { container } = render(() => (
+    render(() => (
       <KebabMenu
         openMenuId={null}
         menuPos={{ top: 0, left: 0 }}
@@ -71,14 +66,14 @@ describe('KebabMenu', () => {
         onDelete={vi.fn()}
       />
     ));
-    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 });
 
 describe('DeleteRuleModal', () => {
   it('renders dialog with aria-labelledby', () => {
     const rule = makeRule();
-    const { container } = render(() => (
+    render(() => (
       <DeleteRuleModal
         target={rule}
         confirmed={false}
@@ -88,11 +83,11 @@ describe('DeleteRuleModal', () => {
         onDelete={vi.fn()}
       />
     ));
-    const dialog = container.querySelector('[role="dialog"]');
+    const dialog = screen.getByRole('dialog');
     expect(dialog).not.toBeNull();
     expect(dialog!.getAttribute('aria-modal')).toBe('true');
     expect(dialog!.getAttribute('aria-labelledby')).toBe('delete-rule-modal-title');
-    expect(container.querySelector('#delete-rule-modal-title')).not.toBeNull();
+    expect(document.getElementById('delete-rule-modal-title')).not.toBeNull();
   });
 
   it('shows rule details in description', () => {
@@ -111,7 +106,7 @@ describe('DeleteRuleModal', () => {
   });
 
   it('does not render when target is null', () => {
-    const { container } = render(() => (
+    render(() => (
       <DeleteRuleModal
         target={null}
         confirmed={false}
@@ -121,13 +116,13 @@ describe('DeleteRuleModal', () => {
         onDelete={vi.fn()}
       />
     ));
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 
 describe('RemoveProviderModal', () => {
   it('renders dialog with aria-labelledby', () => {
-    const { container } = render(() => (
+    render(() => (
       <RemoveProviderModal
         open={true}
         hasEmailRules={false}
@@ -136,14 +131,14 @@ describe('RemoveProviderModal', () => {
         onRemove={vi.fn()}
       />
     ));
-    const dialog = container.querySelector('[role="dialog"]');
+    const dialog = screen.getByRole('dialog');
     expect(dialog).not.toBeNull();
     expect(dialog!.getAttribute('aria-labelledby')).toBe('remove-provider-modal-title');
-    expect(container.querySelector('#remove-provider-modal-title')).not.toBeNull();
+    expect(document.getElementById('remove-provider-modal-title')).not.toBeNull();
   });
 
   it('does not render when closed', () => {
-    const { container } = render(() => (
+    render(() => (
       <RemoveProviderModal
         open={false}
         hasEmailRules={false}
@@ -152,6 +147,6 @@ describe('RemoveProviderModal', () => {
         onRemove={vi.fn()}
       />
     ));
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

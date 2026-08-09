@@ -2,11 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, screen, waitFor, configure } from '@solidjs/testing-library';
 import type { ProviderParamSpec } from 'manifest-shared';
 
-vi.mock('solid-js/web', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('solid-js/web')>();
-  return { ...mod, Portal: (props: any) => props.children };
-});
-
 import ModelParamsAffordance from '../../src/components/ModelParamsAffordance';
 import { getModelParamSpecs } from '../../src/services/api/model-params.js';
 
@@ -174,14 +169,14 @@ describe('ModelParamsAffordance', () => {
 
   it('fetches specs on open and saves through the scoped params callback', async () => {
     const setParams = vi.fn().mockResolvedValue(undefined);
-    const { container, getByRole } = render(() => (
+    const { container } = render(() => (
       <ModelParamsAffordance {...baseProps} setParams={setParams} />
     ));
     fireEvent.click(findButton(container) as HTMLButtonElement);
 
-    fireEvent.click(await waitFor(() => getByRole('button', { name: /Thinking mode/ })));
-    expect(getByRole('link', { name: 'Request parameters for deepseek-v4' })).toBeTruthy();
-    fireEvent.click(getByRole('button', { name: 'Save' }));
+    fireEvent.click(await waitFor(() => screen.getByRole('button', { name: /Thinking mode/ })));
+    expect(screen.getByRole('link', { name: 'Request parameters for deepseek-v4' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
       expect(setParams).toHaveBeenCalledWith('tier:default', 'deepseek', 'api_key', 'deepseek-v4', {
@@ -193,7 +188,7 @@ describe('ModelParamsAffordance', () => {
 
   it('saves null when the chosen value collapses back to the spec default', async () => {
     const setParams = vi.fn().mockResolvedValue(undefined);
-    const { container, getByRole } = render(() => (
+    const { container } = render(() => (
       <ModelParamsAffordance
         {...baseProps}
         getParams={() => ({ thinking: { type: 'disabled' } })}
@@ -202,8 +197,8 @@ describe('ModelParamsAffordance', () => {
     ));
     fireEvent.click(findButton(container) as HTMLButtonElement);
 
-    fireEvent.click(await waitFor(() => getByRole('button', { name: /Thinking mode/ })));
-    fireEvent.click(getByRole('button', { name: 'Save' }));
+    fireEvent.click(await waitFor(() => screen.getByRole('button', { name: /Thinking mode/ })));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
       expect(setParams).toHaveBeenCalledWith(
@@ -218,21 +213,25 @@ describe('ModelParamsAffordance', () => {
 
   it('shows an empty state when the model has no configurable params', async () => {
     mockGetSpecs.mockResolvedValue([]);
-    const { container, findByText, queryByRole } = render(() => (
+    const { container } = render(() => (
       <ModelParamsAffordance {...baseProps} />
     ));
     fireEvent.click(findButton(container) as HTMLButtonElement);
 
-    expect(await findByText('No parameter controls are published for deepseek-v4 yet.')).toBeTruthy();
-    expect(queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(
+      await screen.findByText('No parameter controls are published for deepseek-v4 yet.'),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
   it('swallows a fetch error and shows the empty state', async () => {
     mockGetSpecs.mockRejectedValue(new Error('boom'));
-    const { container, findByText } = render(() => <ModelParamsAffordance {...baseProps} />);
+    const { container } = render(() => <ModelParamsAffordance {...baseProps} />);
     fireEvent.click(findButton(container) as HTMLButtonElement);
 
-    expect(await findByText('No parameter controls are published for deepseek-v4 yet.')).toBeTruthy();
+    expect(
+      await screen.findByText('No parameter controls are published for deepseek-v4 yet.'),
+    ).toBeTruthy();
   });
 
   it('button is disabled when the parent says so', () => {

@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@solidjs/testing-library';
-
-vi.mock('solid-js/web', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('solid-js/web')>();
-  return { ...mod, Portal: (props: any) => props.children };
-});
+import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 
 import { getModelParamSpecs } from '../../src/services/api/model-params.js';
 
@@ -1445,7 +1440,7 @@ describe('providerIdForModel route-provider attribution', () => {
     const deepseekProviders = [
       { provider: 'deepseek', auth_type: 'api_key' as const, is_active: true } as any,
     ];
-    const { container, getByRole } = render(() => (
+    const { container } = render(() => (
       <RoutingTierCard
         {...makeProps({
           tier: () => deepseekTier,
@@ -1463,9 +1458,9 @@ describe('providerIdForModel route-provider attribution', () => {
     ) as HTMLButtonElement;
     expect(btn).not.toBeNull();
     fireEvent.click(btn);
-    const toggle = await waitFor(() => getByRole('button', { name: /Thinking mode/ }));
+    const toggle = await waitFor(() => screen.getByRole('button', { name: /Thinking mode/ }));
     fireEvent.click(toggle);
-    fireEvent.click(getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => {
       expect(setModelParams).toHaveBeenCalledWith(
         'tier:simple',
