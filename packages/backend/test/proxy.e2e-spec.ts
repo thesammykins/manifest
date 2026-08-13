@@ -124,14 +124,6 @@ describe('Proxy E2E — /v1/models', () => {
           context_window: 128000,
           context_length: 128000,
         },
-        {
-          id: 'openai/gpt-4o-mini',
-          object: 'model',
-          created: 0,
-          owned_by: 'openai',
-          context_window: 128000,
-          context_length: 128000,
-        },
       ],
     });
   });
@@ -144,13 +136,18 @@ describe('Proxy E2E — root OpenAI-compatible aliases', () => {
     expect(res.body.data).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'openai/gpt-4o-mini',
+          id: 'manifest/auto',
           object: 'model',
           created: 0,
-          owned_by: 'openai',
+          owned_by: 'manifest',
           context_window: 128000,
           context_length: 128000,
         }),
+      ]),
+    );
+    expect(res.body.data).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'openai/gpt-4o-mini' }),
       ]),
     );
   });
