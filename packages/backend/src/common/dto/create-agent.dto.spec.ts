@@ -72,6 +72,17 @@ describe('CreateAgentDto', () => {
     expect(errors).toHaveLength(0);
   });
 
+  it('accepts the OMP coding harness platform', async () => {
+    const errors = await validate(
+      Object.assign(new CreateAgentDto(), {
+        name: 'OMP harness',
+        agent_category: 'coding',
+        agent_platform: 'omp',
+      }),
+    );
+    expect(errors).toHaveLength(0);
+  });
+
   it('rejects invalid agent_category', async () => {
     const dto = plainToInstance(CreateAgentDto, {
       name: 'my-agent',

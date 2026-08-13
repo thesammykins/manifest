@@ -8,6 +8,7 @@ import ClaudeCodeSetup from './ClaudeCodeSetup.jsx';
 import OpenCodeSetup from './OpenCodeSetup.jsx';
 import WarpSetup from './WarpSetup.jsx';
 import PiSetup from './PiSetup.jsx';
+import OmpSetup from './OmpSetup.jsx';
 import CodexSetup from './CodexSetup.jsx';
 import type { ToolkitId } from '../services/framework-snippets.js';
 import type { ModelAlias } from '../services/api.js';
@@ -22,7 +23,25 @@ type AgentId =
   | 'claude-code'
   | 'opencode'
   | 'warp'
-  | 'pi';
+  | 'pi'
+  | 'omp';
+
+const AGENT_HEADINGS: Readonly<Record<AgentId, string>> = {
+  openclaw: 'Connect your OpenClaw harness to Manifest',
+  hermes: 'Connect your Hermes harness to Manifest',
+  nanobot: 'Connect your Nanobot harness to Manifest',
+  craft: 'Connect your Craft harness to Manifest',
+  codex: 'Connect Codex to Manifest',
+  'claude-code': 'Connect Claude Code to Manifest',
+  opencode: 'Connect OpenCode to Manifest',
+  warp: 'Connect Warp to Manifest',
+  pi: 'Connect Pi to Manifest',
+  omp: 'Connect OMP to Manifest',
+};
+
+function isAgentId(value: string | null | undefined): value is AgentId {
+  return !!value && Object.hasOwn(AGENT_HEADINGS, value);
+}
 
 interface Props {
   apiKey: string | null;
@@ -54,30 +73,12 @@ const SetupStepAddProvider: Component<Props> = (props) => {
 
   const isFiltered = () => !!props.platform;
   const toolkitId = () => (props.platform ? PLATFORM_TO_TOOLKIT[props.platform] : undefined);
+  const heading = () =>
+    isAgentId(props.platform) ? AGENT_HEADINGS[props.platform] : 'Connect your harness to Manifest';
 
   return (
     <div>
-      <h3 class="setup-step__heading">
-        {props.platform === 'hermes'
-          ? 'Connect your Hermes harness to Manifest'
-          : props.platform === 'openclaw'
-            ? 'Connect your OpenClaw harness to Manifest'
-            : props.platform === 'nanobot'
-              ? 'Connect your Nanobot harness to Manifest'
-              : props.platform === 'craft'
-                ? 'Connect your Craft harness to Manifest'
-                : props.platform === 'codex'
-                  ? 'Connect Codex to Manifest'
-                  : props.platform === 'claude-code'
-                    ? 'Connect Claude Code to Manifest'
-                    : props.platform === 'opencode'
-                      ? 'Connect OpenCode to Manifest'
-                      : props.platform === 'warp'
-                        ? 'Connect Warp to Manifest'
-                        : props.platform === 'pi'
-                          ? 'Connect Pi to Manifest'
-                          : 'Connect your harness to Manifest'}
-      </h3>
+      <h3 class="setup-step__heading">{heading()}</h3>
 
       {/* Platform-filtered mode: show only relevant content */}
       <Show when={isFiltered()}>
@@ -108,6 +109,9 @@ const SetupStepAddProvider: Component<Props> = (props) => {
           </Match>
           <Match when={props.platform === 'pi'}>
             <PiSetup {...snippetProps()} />
+          </Match>
+          <Match when={props.platform === 'omp'}>
+            <OmpSetup {...snippetProps()} />
           </Match>
           <Match when={toolkitId()}>
             <FrameworkSnippets
@@ -287,6 +291,16 @@ const SetupStepAddProvider: Component<Props> = (props) => {
                 <img src="/icons/other.svg" alt="" class="panel__tab-icon" width="16" height="16" />
                 Pi
               </button>
+              <button
+                class="panel__tab"
+                classList={{ 'panel__tab--active': activeAgent() === 'omp' }}
+                onClick={() => setActiveAgent('omp')}
+                role="tab"
+                aria-selected={activeAgent() === 'omp'}
+              >
+                <img src="/icons/omp.svg" alt="" class="panel__tab-icon" width="16" height="16" />
+                OMP
+              </button>
             </div>
           </div>
 
@@ -317,6 +331,9 @@ const SetupStepAddProvider: Component<Props> = (props) => {
             </Match>
             <Match when={activeAgent() === 'pi'}>
               <PiSetup {...snippetProps()} />
+            </Match>
+            <Match when={activeAgent() === 'omp'}>
+              <OmpSetup {...snippetProps()} />
             </Match>
           </Switch>
         </Show>

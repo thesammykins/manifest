@@ -3,6 +3,7 @@ import {
   HealContractError,
   type HealingClient,
   type HealingRequestContext,
+  toPhoenixHarness,
 } from './healing-client';
 import type { ConfirmResponse, HealOutcome, HealRequest, HealResponse } from './phoenix.types';
 
@@ -146,7 +147,7 @@ export class HttpHealingClient implements HealingClient {
       'content-type': 'application/json',
       'X-Manifest-Instance': instanceId,
       'X-Manifest-Version': this.manifestVersion ?? 'unknown',
-      'X-Manifest-Harness': context.harness,
+      'X-Manifest-Harness': toPhoenixHarness(context.harness),
     };
   }
 }

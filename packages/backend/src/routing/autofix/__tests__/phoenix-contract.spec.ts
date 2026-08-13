@@ -5,6 +5,7 @@ import type { ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import { load } from 'js-yaml';
 import { AGENT_PLATFORMS, coerceAgentPlatform } from 'manifest-shared';
+import { PHOENIX_HARNESSES, toPhoenixHarness } from '../healing-client';
 import { HEAL_STATUSES, ISSUE_STATUSES, OUTCOME_STATUSES } from '../phoenix.types';
 
 /**
@@ -145,11 +146,18 @@ describe('Phoenix wire contract (vendored OpenAPI)', () => {
       const harnesses = doc.components.parameters.ManifestHarness.schema?.enum ?? [];
       expect(harnesses).toContain('other');
       expect(harnesses.every((harness) => AGENT_PLATFORMS.includes(harness as never))).toBe(true);
+      expect(harnesses).toEqual(PHOENIX_HARNESSES);
     });
 
     it('coerces missing and unknown harness values to other', () => {
       expect(coerceAgentPlatform(undefined)).toBe('other');
       expect(coerceAgentPlatform('future-harness')).toBe('other');
+    });
+
+    it('downgrades harnesses newer than the Phoenix contract to other', () => {
+      expect(toPhoenixHarness('omp')).toBe('other');
+      expect(toPhoenixHarness('codex')).toBe('other');
+      expect(toPhoenixHarness('claude-code')).toBe('claude-code');
     });
 
     it('documents compatibility fallback for omitted and future harnesses', () => {

@@ -46,10 +46,10 @@ describe('SetupStepAddProvider', () => {
     expect(activeBtn!.textContent).toBe('Agents');
   });
 
-  it('shows OpenClaw, Hermes, Nanobot, Craft, Codex, Claude Code, OpenCode, Warp, and Pi tabs inside Agents', () => {
+  it('shows every supported agent tab, including OMP', () => {
     const { container } = render(() => <SetupStepAddProvider {...defaultProps} />);
     const agentTabs = container.querySelectorAll('.panel__tab');
-    expect(agentTabs).toHaveLength(9);
+    expect(agentTabs).toHaveLength(10);
     expect(agentTabs[0].textContent).toContain('OpenClaw');
     expect(agentTabs[1].textContent).toContain('Hermes Agent');
     expect(agentTabs[2].textContent).toContain('Nanobot');
@@ -59,6 +59,7 @@ describe('SetupStepAddProvider', () => {
     expect(agentTabs[6].textContent).toContain('OpenCode');
     expect(agentTabs[7].textContent).toContain('Warp');
     expect(agentTabs[8].textContent).toContain('Pi');
+    expect(agentTabs[9].textContent).toContain('OMP');
   });
 
   it('shows Nanobot setup when Nanobot tab clicked', () => {
@@ -116,6 +117,15 @@ describe('SetupStepAddProvider', () => {
     fireEvent.click(agentTabs[7]); // Warp
     expect(container.textContent).toContain('custom inference endpoint');
     expect(container.textContent).toContain('"url": "http://localhost:3001/v1"');
+  });
+
+  it('shows OMP setup when OMP tab clicked', () => {
+    const { container } = render(() => <SetupStepAddProvider {...defaultProps} />);
+    const agentTabs = container.querySelectorAll('.panel__tab');
+    fireEvent.click(agentTabs[9]);
+    expect(container.textContent).toContain('~/.omp/agent/models.yml');
+    expect(container.textContent).toContain('openai-models-list');
+    expect(container.textContent).toContain('omp --model manifest/auto');
   });
 
   it('defaults to OpenClaw agent tab', () => {
@@ -315,6 +325,13 @@ describe('SetupStepAddProvider', () => {
     it('shows correct heading for openclaw', () => {
       render(() => <SetupStepAddProvider {...defaultProps} platform="openclaw" />);
       expect(screen.getByText('Connect your OpenClaw harness to Manifest')).toBeDefined();
+    });
+
+    it('shows OMP setup directly when platform is omp', () => {
+      const { container } = render(() => <SetupStepAddProvider {...defaultProps} platform="omp" />);
+      expect(container.textContent).toContain('Connect OMP to Manifest');
+      expect(container.textContent).toContain('~/.omp/agent/models.yml');
+      expect(container.querySelector('[aria-label="Setup method"]')).toBeNull();
     });
 
     it('shows HermesSetup directly when platform is hermes', () => {

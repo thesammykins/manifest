@@ -1,6 +1,31 @@
 import type { ConfirmResponse, HealOutcome, HealRequest, HealResponse } from './phoenix.types';
 import type { AgentPlatform } from 'manifest-shared';
 
+/** Harness values accepted by Phoenix's X-Manifest-Harness contract. */
+export const PHOENIX_HARNESSES = [
+  'openclaw',
+  'hermes',
+  'nanobot',
+  'craft',
+  'claude-code',
+  'opencode',
+  'openai-sdk',
+  'anthropic-sdk',
+  'vercel-ai-sdk',
+  'langchain',
+  'curl',
+  'other',
+] as const satisfies readonly AgentPlatform[];
+
+export type PhoenixHarness = (typeof PHOENIX_HARNESSES)[number];
+
+const PHOENIX_HARNESS_SET = new Set<AgentPlatform>(PHOENIX_HARNESSES);
+
+/** Preserve Phoenix's bounded header contract while newer harnesses roll out independently. */
+export function toPhoenixHarness(harness: AgentPlatform): PhoenixHarness {
+  return PHOENIX_HARNESS_SET.has(harness) ? (harness as PhoenixHarness) : 'other';
+}
+
 /** Per-agent metadata sent as bounded headers on authenticated Autofix calls. */
 export interface HealingRequestContext {
   harness: AgentPlatform;

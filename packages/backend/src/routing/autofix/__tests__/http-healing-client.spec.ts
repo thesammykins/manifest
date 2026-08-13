@@ -112,6 +112,17 @@ describe('HttpHealingClient', () => {
       });
     });
 
+    it("maps an OMP harness to Phoenix's forward-compatible other bucket", async () => {
+      fetchSpy.mockResolvedValue(
+        fakeResponse(true, 200, { status: 'no_patch', issueId: 'issue-1' }),
+      );
+      const client = new HttpHealingClient('http://x', 1000, undefined, makeInstanceId(), '6.18.0');
+
+      await client.heal(makeHealRequest(), { harness: 'omp' });
+
+      expect(fetchSpy.mock.calls[0][1].headers['X-Manifest-Harness']).toBe('other');
+    });
+
     it('sends no bearer secret: the id is an identifier, not a credential', async () => {
       fetchSpy.mockResolvedValue(fakeResponse(true, 200, { status: 'no_patch', issueId: 'i' }));
       const client = new HttpHealingClient('http://x', 1000, undefined, makeInstanceId(), '6.15.1');

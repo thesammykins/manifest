@@ -22,6 +22,7 @@ describe('agent-type', () => {
       'opencode',
       'warp',
       'pi',
+      'omp',
       'openai-sdk',
       'anthropic-sdk',
       'vercel-ai-sdk',
@@ -66,16 +67,19 @@ describe('agent-type', () => {
     expect(PLATFORMS_BY_CATEGORY.coding).toContain('opencode');
     expect(PLATFORMS_BY_CATEGORY.coding).toContain('warp');
     expect(PLATFORMS_BY_CATEGORY.coding).toContain('pi');
+    expect(PLATFORMS_BY_CATEGORY.coding).toContain('omp');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('claude-code');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('codex');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('opencode');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('warp');
     expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('pi');
+    expect(PLATFORMS_BY_CATEGORY.personal).not.toContain('omp');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('claude-code');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('codex');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('opencode');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('warp');
     expect(PLATFORMS_BY_CATEGORY.app).not.toContain('pi');
+    expect(PLATFORMS_BY_CATEGORY.app).not.toContain('omp');
   });
 
   it('keeps "other" available in every category for the unknown-platform fallback', () => {
@@ -151,6 +155,7 @@ describe('agent-type', () => {
       expect(platformIcon('opencode', 'coding')).toBe(PLATFORM_ICONS.opencode);
       expect(platformIcon('warp', 'coding')).toBe(PLATFORM_ICONS.warp);
       expect(platformIcon('pi', 'coding')).toBe(PLATFORM_ICONS.pi);
+      expect(platformIcon('omp', 'coding')).toBe(PLATFORM_ICONS.omp);
       expect(platformIcon('openai-sdk', 'app')).toBe(PLATFORM_ICONS['openai-sdk']);
       expect(platformIcon('anthropic-sdk', 'app')).toBe(PLATFORM_ICONS['anthropic-sdk']);
       expect(platformIcon('vercel-ai-sdk', 'app')).toBe(PLATFORM_ICONS['vercel-ai-sdk']);
@@ -176,6 +181,7 @@ describe('agent-type', () => {
       expect(platformIcon('opencode', 'personal')).toBe(PLATFORM_ICONS.opencode);
       expect(platformIcon('warp', 'personal')).toBe(PLATFORM_ICONS.warp);
       expect(platformIcon('pi', 'personal')).toBe(PLATFORM_ICONS.pi);
+      expect(platformIcon('omp', 'personal')).toBe(PLATFORM_ICONS.omp);
       expect(platformIcon('openclaw', 'coding')).toBe(PLATFORM_ICONS.openclaw);
     });
 
