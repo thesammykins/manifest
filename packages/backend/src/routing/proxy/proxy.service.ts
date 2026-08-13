@@ -72,6 +72,7 @@ import {
 import { AutofixService } from '../autofix/autofix.service';
 import type { AutofixRecord } from '../autofix/autofix.types';
 import { recordingResponseFromText } from './attempt-recording-capture';
+import { extractReasoningEffort } from '../reasoning-effort';
 
 type ResolvedRouting = Awaited<ReturnType<ResolveService['resolve']>> & {
   explicit_model_override?: boolean;
@@ -280,6 +281,7 @@ export class ProxyService {
       headers,
       apiMode,
     );
+    const reasoningEffort = this.resolveReasoningEffort(body, routingDecision.requestParams);
     const resolved = routingDecision.resolved;
     const responseMode = resolved.response_mode ?? DEFAULT_RESPONSE_MODE;
     const stream = body.stream === true || responseMode === 'stream';
@@ -329,6 +331,7 @@ export class ProxyService {
       agentId,
       scopeKey: effectiveScopeKey,
       requestParams: routingDecision.requestParams,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
     };
 
     // Snapshot of which known param keys are *effectively in play* for the
@@ -1022,6 +1025,24 @@ export class ProxyService {
       : mergeRequestParams(aliasDecision.requestParams ?? null, headerParams);
   }
 
+  private resolveReasoningEffort(
+    body: ProxyRequestOptions['body'],
+    requestParams: RequestParamDefaults | null | undefined,
+  ): string | undefined {
+    const selections = [extractReasoningEffort(body), extractReasoningEffort(requestParams)].filter(
+      (value): value is string => !!value,
+    );
+    if (selections.length === 0) return undefined;
+
+    const normalized = selections.map((value) => value.trim().toLowerCase());
+    if (new Set(normalized).size > 1) {
+      throw new BadRequestException(
+        `Reasoning effort conflicts across the request, model alias, and ${REASONING_EFFORT_HEADER} header.`,
+      );
+    }
+    return normalized[0];
+  }
+
   /**
    * Route the `model` a proxy client named in the body.
    *
@@ -1572,20 +1593,6 @@ function singleHeaderValue(
   const value = headers?.[key];
   if (Array.isArray(value)) return value[0]?.trim() || undefined;
   return typeof value === 'string' ? value.trim() || undefined : undefined;
-}
-
-function extractReasoningEffort(params: RequestParamDefaults | null | undefined): string | null {
-  if (!params) return null;
-  if (typeof params.reasoning_effort === 'string') return params.reasoning_effort;
-  if (isRecord(params.reasoning) && typeof params.reasoning.effort === 'string') {
-    return params.reasoning.effort;
-  }
-  const thinking = isRecord(params.generationConfig)
-    ? params.generationConfig.thinkingConfig
-    : undefined;
-  return isRecord(thinking) && typeof thinking.thinkingLevel === 'string'
-    ? thinking.thinkingLevel
-    : null;
 }
 
 function mergeRequestParams(

@@ -491,6 +491,8 @@ export interface AvailableModel {
   cost_per_request?: number | null;
   context_window: number;
   capability_reasoning: boolean;
+  /** Client-selectable reasoning efforts for this exact provider route. */
+  reasoning_efforts?: string[];
   capability_code: boolean;
   capabilities?: ModelCapability[];
   input_modalities?: ModelModality[];

@@ -718,6 +718,148 @@ describe('ProxyFallbackService', () => {
       expect(resolveChatBody).toHaveBeenCalledTimes(1);
     });
 
+    it('maps a canonical Chat Completions effort to the attempted provider parameter', async () => {
+      providerParamSpecs.getSpecs.mockResolvedValueOnce([
+        {
+          provider: 'gemini',
+          authType: 'api_key',
+          model: 'gemini-3.5-flash',
+          path: 'generationConfig.thinkingConfig.thinkingLevel',
+          type: 'enum',
+          label: 'Thinking level',
+          description: 'Controls Gemini thinking.',
+          group: 'reasoning',
+          values: ['low', 'medium', 'high'],
+        },
+      ]);
+      providerClient.forward.mockResolvedValue({
+        response: new Response('{}', { status: 200 }),
+        isGoogle: true,
+        isAnthropic: false,
+        isChatGpt: false,
+      });
+
+      await service.tryForwardToProvider({
+        provider: 'gemini',
+        apiKey: 'gemini-key',
+        model: 'gemini-3.5-flash',
+        body: {
+          messages: [{ role: 'user', content: 'hi' }],
+          reasoning_effort: 'high',
+        },
+        stream: false,
+        sessionKey: 'sess-1',
+        authType: 'api_key',
+        paramMergeContext: {
+          agentId: 'agent-1',
+          scopeKey: 'model-alias:gemini',
+          reasoningEffort: 'high',
+        },
+      });
+
+      expect(providerClient.forward).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            generationConfig: { thinkingConfig: { thinkingLevel: 'high' } },
+          }),
+        }),
+      );
+      expect(providerClient.forward.mock.calls[0][0].body).not.toHaveProperty('reasoning_effort');
+    });
+
+    it('removes a fixed alias source parameter when a fallback uses another provider shape', async () => {
+      providerParamSpecs.getSpecs.mockResolvedValueOnce([
+        {
+          provider: 'gemini',
+          authType: 'api_key',
+          model: 'gemini-3.5-flash',
+          path: 'generationConfig.thinkingConfig.thinkingLevel',
+          type: 'enum',
+          label: 'Thinking level',
+          description: 'Controls Gemini thinking.',
+          group: 'reasoning',
+          values: ['low', 'medium', 'high'],
+        },
+      ]);
+      providerClient.forward.mockResolvedValue({
+        response: new Response('{}', { status: 200 }),
+        isGoogle: true,
+        isAnthropic: false,
+        isChatGpt: false,
+      });
+
+      await service.tryForwardToProvider({
+        provider: 'gemini',
+        apiKey: 'gemini-key',
+        model: 'gemini-3.5-flash',
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        stream: false,
+        sessionKey: 'sess-1',
+        authType: 'api_key',
+        paramMergeContext: {
+          agentId: 'agent-1',
+          scopeKey: 'model-alias:fixed-high',
+          requestParams: { reasoning: { effort: 'high', summary: 'auto' } },
+          reasoningEffort: 'high',
+        },
+      });
+
+      expect(providerClient.forward.mock.calls[0][0].body).toEqual({
+        messages: [{ role: 'user', content: 'hi' }],
+        generationConfig: { thinkingConfig: { thinkingLevel: 'high' } },
+      });
+    });
+
+    it('re-applies a Responses API effort after conversion to the provider wire body', async () => {
+      providerParamSpecs.getSpecs.mockResolvedValue([
+        {
+          provider: 'openai',
+          authType: 'subscription',
+          model: 'gpt-5.6-sol',
+          path: 'reasoning.effort',
+          type: 'enum',
+          label: 'Reasoning effort',
+          description: 'Controls subscription reasoning.',
+          group: 'reasoning',
+          values: ['low', 'medium', 'high', 'xhigh'],
+        },
+      ]);
+      const resolveChatBody = jest.fn().mockResolvedValue({
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      providerClient.forward.mockImplementation(async (options) => {
+        expect(await options.resolveChatBody!()).toEqual({
+          messages: [{ role: 'user', content: 'hi' }],
+          reasoning: { effort: 'xhigh' },
+        });
+        return {
+          response: new Response('{}', { status: 200 }),
+          isGoogle: false,
+          isAnthropic: false,
+          isChatGpt: true,
+        };
+      });
+
+      await service.tryForwardToProvider({
+        provider: 'openai',
+        apiKey: 'subscription-token',
+        model: 'gpt-5.6-sol',
+        body: { input: 'hi', reasoning: { effort: 'xhigh' } },
+        resolveChatBody,
+        stream: false,
+        sessionKey: 'sess-1',
+        authType: 'subscription',
+        apiMode: 'responses',
+        paramMergeContext: {
+          agentId: 'agent-1',
+          scopeKey: 'model-alias:sol',
+          reasoningEffort: 'xhigh',
+        },
+      });
+
+      expect(resolveChatBody).toHaveBeenCalledTimes(1);
+    });
+
     it('per-attempt lookup leaves other providers untouched (no cross-provider leak)', async () => {
       providerClient.forward.mockResolvedValue({
         response: new Response('{}', { status: 200 }),

@@ -119,6 +119,39 @@ function openAiModels(response: Awaited<ReturnType<ProxyController['models']>>) 
   return response;
 }
 
+function exposeAliases(
+  modelAliasService: { listEnabled: jest.Mock; resolveModelRequest: jest.Mock },
+  aliases: Array<{
+    modelId: string;
+    displayName?: string;
+    route: { provider: string; authType: 'api_key' | 'subscription'; model: string };
+    requestParams?: Record<string, unknown> | null;
+  }>,
+): void {
+  modelAliasService.listEnabled.mockResolvedValue(
+    aliases.map((alias) => ({
+      model_id: alias.modelId,
+      display_name: alias.displayName ?? alias.modelId,
+      source_kind: 'direct',
+      route: alias.route,
+      request_params: alias.requestParams ?? null,
+    })),
+  );
+  modelAliasService.resolveModelRequest.mockImplementation(
+    async (_agentId: string, _tenantId: string, modelId: string) => {
+      const alias = aliases.find((candidate) => candidate.modelId === modelId);
+      if (!alias) return { kind: 'not_found' };
+      return {
+        kind: 'resolved',
+        resolved: {
+          route: alias.route,
+          fallback_routes: null,
+        },
+      };
+    },
+  );
+}
+
 describe('ProxyController', () => {
   let controller: ProxyController;
   let proxyService: { proxyRequest: jest.Mock };
@@ -382,7 +415,7 @@ describe('ProxyController', () => {
     expect(alias).not.toHaveProperty('context_length');
   });
 
-  it('should include authenticated agent models using provider-qualified ids', async () => {
+  it('should not advertise discovered provider catalogs until a model is aliased', async () => {
     modelDiscovery.getModelsForAgent.mockResolvedValue([
       makeDiscoveredModel({ id: 'gpt-4o', provider: 'openai', authType: 'api_key' }),
       makeDiscoveredModel({ id: 'gpt-4o', provider: 'openrouter', authType: 'api_key' }),
@@ -416,26 +449,6 @@ describe('ProxyController', () => {
           created: 0,
           owned_by: 'manifest',
           display_name: 'Manifest Auto',
-        },
-        { id: 'openai/gpt-4o', object: 'model', created: 0, owned_by: 'openai' },
-        { id: 'openrouter/gpt-4o', object: 'model', created: 0, owned_by: 'openrouter' },
-        {
-          id: 'openai/gpt-4o-subscription',
-          object: 'model',
-          created: 0,
-          owned_by: 'openai',
-        },
-        {
-          id: 'opencode-go/glm-5.1-subscription',
-          object: 'model',
-          created: 0,
-          owned_by: 'opencode-go',
-        },
-        {
-          id: 'custom:provider-1/model-a',
-          object: 'model',
-          created: 0,
-          owned_by: 'custom:provider-1',
         },
       ],
     });
@@ -472,9 +485,84 @@ describe('ProxyController', () => {
           owned_by: 'manifest',
           display_name: 'Manifest Auto',
         },
-        { id: 'openai/gpt-4o', object: 'model', created: 0, owned_by: 'openai' },
       ],
     });
+  });
+
+  it('should advertise one reasoning-capable model without synthetic effort variants', async () => {
+    modelDiscovery.getModelsForAgent.mockResolvedValue([
+      makeDiscoveredModel({ id: 'gpt-5.6-sol', provider: 'openai', authType: 'subscription' }),
+    ]);
+    exposeAliases(modelAliasService, [
+      {
+        modelId: 'openai/gpt-5.6-sol-subscription',
+        displayName: 'GPT-5.6 Sol',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
+      },
+    ]);
+    providerParamSpecs.getSpecs.mockResolvedValue([
+      {
+        path: 'reasoning.effort',
+        label: 'Reasoning effort',
+        description: 'Controls reasoning effort.',
+        group: 'reasoning',
+        type: 'enum',
+        values: ['low', 'medium', 'high', 'xhigh'],
+        default: 'medium',
+      },
+    ]);
+
+    const response = openAiModels(await controller.models(mockRequest({}) as never));
+
+    expect(response.data).toContainEqual({
+      id: 'openai/gpt-5.6-sol-subscription',
+      object: 'model',
+      created: 0,
+      owned_by: 'manifest',
+      display_name: 'GPT-5.6 Sol',
+      reasoning: true,
+      thinking: {
+        mode: 'effort',
+        efforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultLevel: 'medium',
+      },
+    });
+    expect(response.data.map((model) => model.id)).not.toEqual(
+      expect.arrayContaining([
+        'openai/gpt-5.6-sol-subscription-low',
+        'openai/gpt-5.6-sol-subscription-high',
+      ]),
+    );
+  });
+
+  it('should keep a fixed-effort alias fixed instead of advertising a selector', async () => {
+    modelDiscovery.getModelsForAgent.mockResolvedValue([
+      makeDiscoveredModel({ id: 'gpt-5.6-sol', provider: 'openai', authType: 'subscription' }),
+    ]);
+    exposeAliases(modelAliasService, [
+      {
+        modelId: 'sol-high',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
+        requestParams: { reasoning: { effort: 'high' } },
+      },
+    ]);
+    providerParamSpecs.getSpecs.mockResolvedValue([
+      {
+        path: 'reasoning.effort',
+        label: 'Reasoning effort',
+        description: 'Controls reasoning effort.',
+        group: 'reasoning',
+        type: 'enum',
+        values: ['low', 'medium', 'high'],
+      },
+    ]);
+
+    const response = openAiModels(await controller.models(mockRequest({}) as never));
+    const fixedAlias = response.data.find((model) => model.id === 'sol-high');
+
+    expect(fixedAlias).toEqual(
+      expect.not.objectContaining({ reasoning: expect.anything(), thinking: expect.anything() }),
+    );
   });
 
   it('should expose capability metadata when ?capabilities=true, preserving subscription ids', async () => {
@@ -488,6 +576,12 @@ describe('ProxyController', () => {
         capabilities: ['text', 'image', 'stream', 'tools'],
         supportedEndpoints: ['/responses'],
       }),
+    ]);
+    exposeAliases(modelAliasService, [
+      {
+        modelId: 'openai/gpt-5.4-mini-subscription',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.4-mini' },
+      },
     ]);
 
     await expect(controller.models(mockRequest({}) as never, 'true')).resolves.toEqual({
@@ -511,7 +605,8 @@ describe('ProxyController', () => {
           id: 'openai/gpt-5.4-mini-subscription',
           object: 'model',
           created: 0,
-          owned_by: 'openai',
+          owned_by: 'manifest',
+          display_name: 'openai/gpt-5.4-mini-subscription',
           capabilities: {
             input_modalities: ['text', 'image'],
             output_modalities: ['text'],
@@ -539,6 +634,16 @@ describe('ProxyController', () => {
         outputPricePerToken: 0,
       }),
     ]);
+    exposeAliases(modelAliasService, [
+      {
+        modelId: 'openai/gpt-5.4-mini-subscription',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.4-mini' },
+      },
+      {
+        modelId: 'openrouter/free-model',
+        route: { provider: 'openrouter', authType: 'api_key', model: 'free-model' },
+      },
+    ]);
 
     await expect(controller.models(mockRequest({}) as never, undefined, 'true')).resolves.toEqual({
       object: 'list',
@@ -561,14 +666,16 @@ describe('ProxyController', () => {
           id: 'openai/gpt-5.4-mini-subscription',
           object: 'model',
           created: 0,
-          owned_by: 'openai',
+          owned_by: 'manifest',
+          display_name: 'openai/gpt-5.4-mini-subscription',
           cost: { input: 0.25, output: 2 },
         },
         {
           id: 'openrouter/free-model',
           object: 'model',
           created: 0,
-          owned_by: 'openrouter',
+          owned_by: 'manifest',
+          display_name: 'openrouter/free-model',
           cost: { input: 0, output: 0 },
         },
       ],
@@ -593,6 +700,20 @@ describe('ProxyController', () => {
         outputPricePerToken: -1,
       }),
     ]);
+    exposeAliases(modelAliasService, [
+      {
+        modelId: 'openai/input-only',
+        route: { provider: 'openai', authType: 'api_key', model: 'input-only' },
+      },
+      {
+        modelId: 'openai/output-only',
+        route: { provider: 'openai', authType: 'api_key', model: 'output-only' },
+      },
+      {
+        modelId: 'openai/unknown',
+        route: { provider: 'openai', authType: 'api_key', model: 'unknown' },
+      },
+    ]);
 
     const withCosts = openAiModels(
       await controller.models(mockRequest({}) as never, undefined, 'true'),
@@ -616,17 +737,25 @@ describe('ProxyController', () => {
         id: 'openai/input-only',
         object: 'model',
         created: 0,
-        owned_by: 'openai',
+        owned_by: 'manifest',
+        display_name: 'openai/input-only',
         cost: { input: 1 },
       },
       {
         id: 'openai/output-only',
         object: 'model',
         created: 0,
-        owned_by: 'openai',
+        owned_by: 'manifest',
+        display_name: 'openai/output-only',
         cost: { output: 3 },
       },
-      { id: 'openai/unknown', object: 'model', created: 0, owned_by: 'openai' },
+      {
+        id: 'openai/unknown',
+        object: 'model',
+        created: 0,
+        owned_by: 'manifest',
+        display_name: 'openai/unknown',
+      },
     ]);
 
     const withoutCosts = openAiModels(
@@ -646,6 +775,20 @@ describe('ProxyController', () => {
         authType: 'subscription',
       }),
     ]);
+    exposeAliases(modelAliasService, [
+      {
+        modelId: 'kiro/mystery-model',
+        route: { provider: 'kiro', authType: 'api_key', model: 'mystery-model' },
+      },
+      {
+        modelId: 'openai/gpt-5.3-codex-spark-subscription',
+        route: {
+          provider: 'openai',
+          authType: 'subscription',
+          model: 'gpt-5.3-codex-spark',
+        },
+      },
+    ]);
 
     await expect(controller.models(mockRequest({}) as never, 'true')).resolves.toEqual({
       object: 'list',
@@ -664,12 +807,19 @@ describe('ProxyController', () => {
           owned_by: 'manifest',
           display_name: 'Manifest Auto',
         },
-        { id: 'kiro/mystery-model', object: 'model', created: 0, owned_by: 'kiro' },
+        {
+          id: 'kiro/mystery-model',
+          object: 'model',
+          created: 0,
+          owned_by: 'manifest',
+          display_name: 'kiro/mystery-model',
+        },
         {
           id: 'openai/gpt-5.3-codex-spark-subscription',
           object: 'model',
           created: 0,
-          owned_by: 'openai',
+          owned_by: 'manifest',
+          display_name: 'openai/gpt-5.3-codex-spark-subscription',
           capabilities: {
             input_modalities: ['text'],
             output_modalities: ['text'],
@@ -686,6 +836,12 @@ describe('ProxyController', () => {
   it('should resolve capabilities from the same sources as the routing model picker', async () => {
     modelDiscovery.getModelsForAgent.mockResolvedValue([
       makeDiscoveredModel({ id: 'gpt-4o', provider: 'openai' }),
+    ]);
+    exposeAliases(modelAliasService, [
+      {
+        modelId: 'openai/gpt-4o',
+        route: { provider: 'openai', authType: 'api_key', model: 'gpt-4o' },
+      },
     ]);
     providerParamSpecs.getCapabilities.mockResolvedValue(['tools']);
     modelsDevSync.lookupModel.mockReturnValue({
@@ -719,7 +875,8 @@ describe('ProxyController', () => {
           id: 'openai/gpt-4o',
           object: 'model',
           created: 0,
-          owned_by: 'openai',
+          owned_by: 'manifest',
+          display_name: 'openai/gpt-4o',
           capabilities: {
             input_modalities: ['text', 'image'],
             output_modalities: ['text'],
@@ -744,6 +901,12 @@ describe('ProxyController', () => {
         capabilities: ['text', 'image', 'stream', 'tools'],
       }),
     ]);
+    exposeAliases(modelAliasService, [
+      {
+        modelId: 'openai/gpt-4o',
+        route: { provider: 'openai', authType: 'api_key', model: 'gpt-4o' },
+      },
+    ]);
 
     await expect(controller.models(mockRequest({}) as never, 'true', 'true')).resolves.toEqual({
       object: 'list',
@@ -766,7 +929,8 @@ describe('ProxyController', () => {
           id: 'openai/gpt-4o',
           object: 'model',
           created: 0,
-          owned_by: 'openai',
+          owned_by: 'manifest',
+          display_name: 'openai/gpt-4o',
           capabilities: {
             input_modalities: ['text', 'image'],
             output_modalities: ['text'],

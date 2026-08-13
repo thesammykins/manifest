@@ -66,8 +66,7 @@ import type {
 import { ResponsesSseError } from './chatgpt-adapter';
 import { sanitizeExceptionResponse } from './proxy-error-response';
 import { redactInlineImageDataUrls } from './inline-image-redaction';
-import { isReasoningEffortSuffix, openAiModelId } from './openai-model-id';
-import type { ModelRoute, ProviderParamSpec } from 'manifest-shared';
+import type { ModelRoute } from 'manifest-shared';
 import { PlanService } from '../../billing/plan.service';
 import type { CodexModelInfo, DiscoveredModel } from '../../model-discovery/model-fetcher';
 import { openAiModelCapabilities, type OpenAiModelCapabilities } from './openai-model-capabilities';
@@ -78,6 +77,7 @@ import {
   createAttemptRecordingCapture,
   recordingResponseFromText,
 } from './attempt-recording-capture';
+import { extractReasoningEffort, isReasoningEffortSpec } from '../reasoning-effort';
 
 const MAX_SEEN_TENANTS = 10_000;
 const SEEN_TENANT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -102,6 +102,12 @@ interface OpenAiModelObject {
   display_name?: string;
   type?: 'model';
   manifest_params?: ManifestModelParam[];
+  reasoning?: boolean;
+  thinking?: {
+    mode: 'effort';
+    efforts: string[];
+    defaultLevel?: string;
+  };
   capabilities?: OpenAiModelCapabilities;
   cost?: OpenAiModelCost;
 }
@@ -244,50 +250,30 @@ export class ProxyController {
         display_name: alias.display_name ?? id,
       };
       addContextFields(row, aliasMetadata.contextWindow);
-      if (includeManifestParams && aliasMetadata.route) {
-        addManifestParams(row, await this.manifestParamsForRoute(aliasMetadata.route));
+      if (aliasMetadata.route) {
+        const params = await this.manifestParamsForRoute(aliasMetadata.route);
+        if (includeManifestParams) addManifestParams(row, params);
+        if (!extractReasoningEffort(alias.request_params)) addReasoningMetadata(row, params);
+
+        const discovered = modelForRoute(aliasMetadata.route, models);
+        if (discovered && includeCapabilities) {
+          const resolved = await resolveModelCapabilityMetadata(
+            discovered,
+            this.providerParamSpecs,
+            this.modelsDevSync,
+          );
+          const modelCapabilities = openAiModelCapabilities({ ...discovered, ...resolved });
+          if (modelCapabilities) row.capabilities = modelCapabilities;
+        }
+        if (discovered && includeCost) {
+          const modelCost = openAiModelCost(
+            discovered.inputPricePerToken,
+            discovered.outputPricePerToken,
+          );
+          if (modelCost) row.cost = modelCost;
+        }
       }
       data.push(row);
-    }
-
-    for (const model of models) {
-      const id = openAiModelId(model);
-      const key = id.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const route = model.authType
-        ? {
-            provider: model.provider,
-            authType: model.authType,
-            model: model.id,
-          }
-        : null;
-      const params = route ? await this.manifestParamsForRoute(route) : [];
-      const entry: OpenAiModelObject = {
-        id,
-        object: 'model',
-        created: MODEL_CREATED_UNKNOWN,
-        owned_by: model.provider,
-      };
-      addContextFields(entry, model.contextWindow);
-      if (includeManifestParams) addManifestParams(entry, params);
-      if (includeCapabilities) {
-        // Same resolution as the dashboard's model picker, so agents and the
-        // routing UI report identical capability facts.
-        const resolved = await resolveModelCapabilityMetadata(
-          model,
-          this.providerParamSpecs,
-          this.modelsDevSync,
-        );
-        const modelCapabilities = openAiModelCapabilities({ ...model, ...resolved });
-        if (modelCapabilities) entry.capabilities = modelCapabilities;
-      }
-      if (includeCost) {
-        const modelCost = openAiModelCost(model.inputPricePerToken, model.outputPricePerToken);
-        if (modelCost) entry.cost = modelCost;
-      }
-      data.push(entry);
-      addReasoningVariantRows(data, seen, entry, params);
     }
 
     return {
@@ -337,7 +323,7 @@ export class ProxyController {
       route.authType,
       route.model,
     );
-    return specs.filter(isReasoningEnumSpec).map((spec) => ({
+    return specs.filter(isReasoningEffortSpec).map((spec) => ({
       category: 'reasoning',
       path: spec.path,
       label: spec.label,
@@ -1199,30 +1185,16 @@ function addManifestParams(row: OpenAiModelObject, params: ManifestModelParam[])
   if (params.length > 0) row.manifest_params = params;
 }
 
-function addReasoningVariantRows(
-  data: OpenAiModelObject[],
-  seen: Set<string>,
-  base: OpenAiModelObject,
-  params: ManifestModelParam[],
-): void {
-  const efforts = params
-    .flatMap((param) => param.values)
-    .filter((value) => isReasoningEffortSuffix(value));
-  for (const effort of [...new Set(efforts)]) {
-    const id = `${base.id}-${effort.toLowerCase()}`;
-    const key = id.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    data.push({
-      id,
-      object: 'model',
-      created: base.created,
-      owned_by: base.owned_by,
-      context_window: base.context_window,
-      context_length: base.context_length,
-      type: base.type,
-    });
-  }
+function addReasoningMetadata(row: OpenAiModelObject, params: ManifestModelParam[]): void {
+  const efforts = [...new Set(params.flatMap((param) => param.values))];
+  if (efforts.length === 0) return;
+  const configuredDefault = params.find((param) => param.default)?.default;
+  row.reasoning = true;
+  row.thinking = {
+    mode: 'effort',
+    efforts,
+    ...(configuredDefault ? { defaultLevel: configuredDefault } : {}),
+  };
 }
 
 function addContextFields(row: OpenAiModelObject, value: number | null | undefined): void {
@@ -1256,6 +1228,18 @@ function contextForRoute(
   return finiteContext(model?.contextWindow);
 }
 
+function modelForRoute(
+  route: ModelRoute,
+  models: Awaited<ReturnType<ModelDiscoveryService['getModelsForAgent']>>,
+): DiscoveredModel | undefined {
+  return models.find(
+    (candidate) =>
+      candidate.provider.toLowerCase() === route.provider.toLowerCase() &&
+      (!route.authType || candidate.authType === route.authType) &&
+      candidate.id === route.model,
+  );
+}
+
 function minFiniteContext(values: Array<number | null | undefined>): number | null {
   const finite = values.map(finiteContext).filter((value): value is number => value !== null);
   return finite.length > 0 ? Math.min(...finite) : null;
@@ -1270,14 +1254,4 @@ function knownContextMinimum(values: Array<number | null | undefined>): number |
 
 function finiteContext(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
-}
-
-function isReasoningEnumSpec(spec: ProviderParamSpec): boolean {
-  if (spec.group !== 'reasoning' || spec.type !== 'enum') return false;
-  if (!spec.values?.some((value) => typeof value === 'string')) return false;
-  const path = spec.path.toLowerCase();
-  if (path === 'reasoning_effort') return true;
-  if (path.endsWith('.effort')) return true;
-  if (path.endsWith('thinkinglevel')) return true;
-  return spec.label.toLowerCase().includes('effort');
 }

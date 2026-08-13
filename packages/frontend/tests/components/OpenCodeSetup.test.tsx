@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 
 import OpenCodeSetup, { getOpenCodeConfig } from '../../src/components/OpenCodeSetup';
-import type { ModelAlias } from '../../src/services/api';
+import type { AvailableModel, ModelAlias } from '../../src/services/api';
 
 const writeText = vi.fn().mockResolvedValue(undefined);
 
@@ -90,7 +90,6 @@ describe('OpenCodeSetup', () => {
       />
     ));
 
-    expect(container.textContent).toContain('"auto"');
     expect(container.textContent).toContain('"manifest/auto"');
     expect(container.textContent).toContain('"openai-subscription/gpt-5.5-high"');
     expect(container.textContent).toContain('"name": "GPT 5.5 High"');
@@ -138,6 +137,41 @@ describe('OpenCodeSetup', () => {
     });
     expect(models['openai-subscription/gpt-5.5-high']).toBeUndefined();
     expect(models['openai-subscription/gpt-5.5-low']).toBeUndefined();
+  });
+
+  it('builds OpenCode variants from a single reasoning-capable model alias', () => {
+    const aliases = [
+      {
+        model_id: 'openai-subscription/gpt-5.6-sol',
+        display_name: 'GPT-5.6 Sol',
+        enabled: true,
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
+        request_params: null,
+      },
+    ] as ModelAlias[];
+    const availableModels = [
+      {
+        model_name: 'gpt-5.6-sol',
+        provider: 'openai',
+        auth_type: 'subscription',
+        reasoning_efforts: ['low', 'medium', 'high', 'xhigh'],
+      },
+    ] as AvailableModel[];
+
+    const config = JSON.parse(
+      getOpenCodeConfig('http://localhost:38240/v1', 'mnfst_key', aliases, availableModels),
+    );
+
+    expect(config.provider.manifest.models['openai-subscription/gpt-5.6-sol']).toMatchObject({
+      id: 'openai-subscription/gpt-5.6-sol',
+      variants: {
+        low: { reasoningEffort: 'low', reasoningSummary: 'auto' },
+        medium: { reasoningEffort: 'medium', reasoningSummary: 'auto' },
+        high: { reasoningEffort: 'high', reasoningSummary: 'auto' },
+        xhigh: { reasoningEffort: 'xhigh', reasoningSummary: 'auto' },
+      },
+    });
   });
 
   it('pins distinct Manifest aliases to their exact OpenCode wire model ids', () => {

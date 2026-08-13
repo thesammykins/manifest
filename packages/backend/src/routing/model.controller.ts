@@ -34,6 +34,7 @@ import {
   CLOUD_LOCAL_PROVIDER_MESSAGE,
   isProviderAvailableForDeployment,
 } from '../common/utils/provider-availability';
+import { reasoningEffortsFromSpecs } from './reasoning-effort';
 
 function formatModelSlug(slug: string): string {
   return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -167,11 +168,16 @@ export class ModelController {
       models.map(async (m) => {
         const isCustom = CustomProviderService.isCustom(m.provider);
         const authType = m.authType ?? 'api_key';
+        const [capabilityMetadata, paramSpecs] = await Promise.all([
+          resolveModelCapabilityMetadata(m, this.providerParamSpecs, this.modelsDevSync),
+          this.providerParamSpecs.getSpecs(m.provider, authType, m.id),
+        ]);
         const {
           capabilities: modelCapabilities,
           inputModalities: knownInputModalities,
           modelsDevEntry,
-        } = await resolveModelCapabilityMetadata(m, this.providerParamSpecs, this.modelsDevSync);
+        } = capabilityMetadata;
+        const reasoningEfforts = reasoningEffortsFromSpecs(paramSpecs);
         const inputModalities =
           knownInputModalities ?? inputModalitiesFromCapabilities(modelCapabilities);
         // OpenCode Go bills a per-request slice of its dollar quota rather than
@@ -189,6 +195,7 @@ export class ModelController {
           ...(costPerRequest != null ? { cost_per_request: costPerRequest } : {}),
           context_window: m.contextWindow,
           capability_reasoning: m.capabilityReasoning,
+          ...(reasoningEfforts.length > 0 ? { reasoning_efforts: reasoningEfforts } : {}),
           capability_code: m.capabilityCode,
           ...(modelCapabilities ? { capabilities: modelCapabilities } : {}),
           input_modalities: inputModalities,

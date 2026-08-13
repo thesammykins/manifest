@@ -57,17 +57,17 @@ const ProviderModelExposurePanel: Component<Props> = (props) => {
     }
   };
 
-  const visibleCount = () => props.rows.filter((row) => row.enabled).length;
-  const allModelsAction = () => (visibleCount() > 0 ? 'Hide all models' : 'Show all models');
+  const enabledCount = () => props.rows.filter((row) => row.enabled).length;
+  const allModelsAction = () => (enabledCount() > 0 ? 'Disable all models' : 'Enable all models');
 
   return (
     <section class="provider-model-exposure-panel">
       <div class="provider-model-exposure-panel__header">
         <div>
-          <h2 class="routing-section__title">Provider model exposure</h2>
+          <h2 class="routing-section__title">Routing model availability</h2>
           <p class="routing-section__subtitle">
-            Hidden models are removed from `/v1/models`, pickers, and direct routes. Provider
-            connections are managed separately.
+            Choose which provider models Manifest may route to. The harness catalog above controls
+            what external model pickers advertise.
           </p>
         </div>
         <Show when={props.rows.length > 0}>
@@ -75,7 +75,7 @@ const ProviderModelExposurePanel: Component<Props> = (props) => {
             type="button"
             class="btn btn--outline btn--sm"
             disabled={pendingKey() !== null}
-            onClick={() => void toggleAll('all', props.rows, visibleCount() === 0)}
+            onClick={() => void toggleAll('all', props.rows, enabledCount() === 0)}
           >
             {pendingKey() === 'all' ? 'Saving...' : allModelsAction()}
           </button>
@@ -99,7 +99,7 @@ const ProviderModelExposurePanel: Component<Props> = (props) => {
                     <span>{authLabel(group.authType)}</span>
                   </div>
                   <span class="provider-model-exposure-panel__count">
-                    {group.rows.filter((row) => row.enabled).length} of {group.rows.length} shown
+                    {group.rows.filter((row) => row.enabled).length} of {group.rows.length} enabled
                   </span>
                   <button
                     type="button"
@@ -116,8 +116,8 @@ const ProviderModelExposurePanel: Component<Props> = (props) => {
                     {pendingKey() === group.key
                       ? 'Saving...'
                       : group.rows.some((row) => row.enabled)
-                        ? 'Hide all'
-                        : 'Show all'}
+                        ? 'Disable all'
+                        : 'Enable all'}
                   </button>
                 </div>
                 <div class="provider-model-exposure-panel__rows">
@@ -150,8 +150,8 @@ const ProviderModelExposurePanel: Component<Props> = (props) => {
                           {pendingKey() === modelKey(row)
                             ? 'Saving...'
                             : row.enabled
-                              ? 'Hide'
-                              : 'Show'}
+                              ? 'Disable'
+                              : 'Enable'}
                         </button>
                       </div>
                     )}

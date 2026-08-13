@@ -1,24 +1,26 @@
 import { createSignal, Show, type Component } from 'solid-js';
 import CopyButton from './CopyButton.jsx';
 import CodeBlock from './CodeBlock.jsx';
-import type { ModelAlias } from '../services/api.js';
+import type { AvailableModel, ModelAlias } from '../services/api.js';
 import { exposedSetupModels } from '../services/exposed-models.js';
 
-const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 interface Props {
   apiKey: string | null;
   keyPrefix: string | null;
   baseUrl: string;
   modelAliases?: ModelAlias[];
+  availableModels?: AvailableModel[];
 }
 
 export function getOpenCodeConfig(
   baseUrl: string,
   apiKey: string,
   modelAliases?: ModelAlias[],
+  availableModels?: AvailableModel[],
 ): string {
-  const models = openCodeModels(modelAliases);
+  const models = openCodeModels(modelAliases, availableModels);
   return JSON.stringify(
     {
       $schema: 'https://opencode.ai/config.json',
@@ -40,14 +42,22 @@ export function getOpenCodeConfig(
   );
 }
 
-function openCodeModels(modelAliases?: ModelAlias[]): Record<string, unknown> {
-  const entries = exposedSetupModels(modelAliases).map((model) => [
-    model.id,
-    // Pin the wire model id explicitly. OpenCode otherwise currently defaults
-    // to the object key, but `id` is the documented escape hatch for aliases
-    // and prevents future catalog metadata from remapping a Manifest route.
-    { id: model.id, name: model.name } as Record<string, unknown>,
-  ]);
+function openCodeModels(
+  modelAliases?: ModelAlias[],
+  availableModels?: AvailableModel[],
+): Record<string, unknown> {
+  const entries = exposedSetupModels(modelAliases, availableModels).map((model) => {
+    const entry: Record<string, unknown> = { id: model.id, name: model.name };
+    if (model.reasoningEfforts?.length) {
+      entry.variants = Object.fromEntries(
+        model.reasoningEfforts.map((effort) => [
+          effort,
+          { reasoningEffort: effort, reasoningSummary: 'auto' },
+        ]),
+      );
+    }
+    return [model.id, entry];
+  });
   const models = Object.fromEntries(entries);
   const aliases = (modelAliases ?? []).filter((alias) => alias.enabled);
   const byId = new Map(aliases.map((alias) => [alias.model_id.toLowerCase(), alias]));
@@ -58,7 +68,12 @@ function openCodeModels(modelAliases?: ModelAlias[]): Record<string, unknown> {
     const baseEntry = models[alias.model_id];
     if (!baseEntry) continue;
 
-    const variants: Record<string, { reasoningEffort: string; reasoningSummary: 'auto' }> = {};
+    const variants = {
+      ...((baseEntry.variants as Record<
+        string,
+        { reasoningEffort: string; reasoningSummary: 'auto' }
+      >) ?? {}),
+    };
     const routeKey = directRouteKey(alias);
     for (const candidate of aliases) {
       if (candidate === alias || candidate.source_kind !== 'direct' || !candidate.route) {
@@ -154,8 +169,10 @@ const OpenCodeSetup: Component<Props> = (props) => {
     return keyRevealed() ? props.apiKey : masked();
   };
 
-  const settingsCopy = () => getOpenCodeConfig(props.baseUrl, copyKey(), props.modelAliases);
-  const settingsShown = () => getOpenCodeConfig(props.baseUrl, visibleKey(), props.modelAliases);
+  const settingsCopy = () =>
+    getOpenCodeConfig(props.baseUrl, copyKey(), props.modelAliases, props.availableModels);
+  const settingsShown = () =>
+    getOpenCodeConfig(props.baseUrl, visibleKey(), props.modelAliases, props.availableModels);
 
   return (
     <div class="setup-agents-card">

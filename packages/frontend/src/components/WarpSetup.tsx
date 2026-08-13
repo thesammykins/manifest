@@ -13,14 +13,14 @@ interface Props {
 
 function warpSetupModels(modelAliases?: ModelAlias[]): ExposedSetupModel[] {
   const models = exposedSetupModels(modelAliases);
-  const baseModels = models.filter((model) => model.id === 'auto' || model.id === 'manifest/auto');
+  const baseModels = models.filter((model) => model.id === 'manifest/auto');
   const aliasById = new Map(
     (modelAliases ?? [])
       .filter((alias) => alias.enabled)
       .map((alias) => [alias.model_id.toLowerCase(), alias]),
   );
   const aliasModels = models
-    .filter((model) => model.id !== 'auto' && model.id !== 'manifest/auto')
+    .filter((model) => model.id !== 'manifest/auto')
     .sort((a, b) => {
       const aAlias = aliasById.get(a.id.toLowerCase());
       const bAlias = aliasById.get(b.id.toLowerCase());

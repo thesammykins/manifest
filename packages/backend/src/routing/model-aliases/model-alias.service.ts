@@ -12,11 +12,9 @@ import {
   isModelRouteArray,
   isResponseMode,
   omitSensitiveRequestParams,
-  setProviderParamValue,
   type AuthType,
   type CredentialSelectionMode,
   type ModelRoute,
-  type ProviderParamSpec,
   type RequestParamDefaults,
   type ResponseMode,
   type SpecificityCategory,
@@ -36,6 +34,7 @@ import { ProviderKeyService } from '../routing-core/provider-key.service';
 import { ProviderParamSpecService } from '../routing-core/provider-param-spec.service';
 import { effectiveRoutesForResponseMode } from '../routing-core/response-mode-guard';
 import { openAiModelId, parseReasoningSuffix } from '../proxy/openai-model-id';
+import { isReasoningEffortSpec, reasoningEffortParams } from '../reasoning-effort';
 import {
   CreateModelAliasDto,
   MAX_MODEL_ALIAS_DISPLAY_NAME_LENGTH,
@@ -363,14 +362,8 @@ export class ModelAliasService {
       route.model,
     );
     const candidates = specs.filter(isReasoningEffortSpec);
-    const spec = candidates.find(
-      (candidate) =>
-        !candidate.values ||
-        candidate.values.some(
-          (value) => typeof value === 'string' && value.toLowerCase() === normalized,
-        ),
-    );
-    if (!spec) {
+    const resolved = reasoningEffortParams(specs, normalized);
+    if (!resolved) {
       if (candidates.length === 0) {
         throw new BadRequestException(
           `Reasoning effort is not supported for ${route.provider}/${route.model}.`,
@@ -380,7 +373,7 @@ export class ModelAliasService {
         `Reasoning effort "${normalized}" is not supported for ${route.provider}/${route.model}.`,
       );
     }
-    return setProviderParamValue({}, spec.path, normalized);
+    return resolved.params;
   }
 
   private async buildRawDirectResolution(
@@ -660,16 +653,6 @@ function normalizeReasoningEffort(effort: string): string {
     throw new BadRequestException('Reasoning effort must be a non-empty token.');
   }
   return normalized;
-}
-
-function isReasoningEffortSpec(spec: ProviderParamSpec): boolean {
-  if (spec.group !== 'reasoning') return false;
-  const path = spec.path.toLowerCase();
-  if (path === 'reasoning_effort') return true;
-  if (path.endsWith('.effort')) return true;
-  if (path.endsWith('thinkinglevel')) return true;
-  const label = spec.label.toLowerCase();
-  return spec.type === 'enum' && label.includes('effort');
 }
 
 function dedupeRoutes(routes: ModelRoute[]): ModelRoute[] {

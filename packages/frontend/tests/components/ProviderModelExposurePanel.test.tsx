@@ -32,22 +32,26 @@ const rows: ModelFilterRow[] = [
 
 describe('ProviderModelExposurePanel', () => {
   it('renders visible and hidden models grouped by provider/auth type', () => {
-    render(() => <ProviderModelExposurePanel rows={rows} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
+    render(() => (
+      <ProviderModelExposurePanel rows={rows} onToggle={vi.fn()} onToggleAll={vi.fn()} />
+    ));
 
-    expect(screen.getByText('Provider model exposure')).toBeTruthy();
+    expect(screen.getByText('Routing model availability')).toBeTruthy();
     expect(screen.getByText('Openai')).toBeTruthy();
     expect(screen.getByText('Anthropic')).toBeTruthy();
     expect(screen.getByText('GPT-4o')).toBeTruthy();
     expect(screen.getByText('gpt-4o-mini')).toBeTruthy();
     expect(screen.getAllByText('128,000 ctx')).toHaveLength(2);
-    expect(screen.getByText('1 of 2 shown')).toBeTruthy();
+    expect(screen.getByText('1 of 2 enabled')).toBeTruthy();
   });
 
   it('toggles hidden models back on', async () => {
     const onToggle = vi.fn().mockResolvedValue(undefined);
-    render(() => <ProviderModelExposurePanel rows={rows} onToggle={onToggle} onToggleAll={vi.fn()} />);
+    render(() => (
+      <ProviderModelExposurePanel rows={rows} onToggle={onToggle} onToggleAll={vi.fn()} />
+    ));
 
-    fireEvent.click(screen.getByText('Show'));
+    fireEvent.click(screen.getByText('Enable'));
 
     await waitFor(() => {
       expect(onToggle).toHaveBeenCalledWith(rows[1], true);
@@ -56,9 +60,11 @@ describe('ProviderModelExposurePanel', () => {
 
   it('hides every model from one action', async () => {
     const onToggleAll = vi.fn().mockResolvedValue(undefined);
-    render(() => <ProviderModelExposurePanel rows={rows} onToggle={vi.fn()} onToggleAll={onToggleAll} />);
+    render(() => (
+      <ProviderModelExposurePanel rows={rows} onToggle={vi.fn()} onToggleAll={onToggleAll} />
+    ));
 
-    fireEvent.click(screen.getByText('Hide all models'));
+    fireEvent.click(screen.getByText('Disable all models'));
 
     await waitFor(() => {
       expect(onToggleAll).toHaveBeenCalledWith(rows, false);
@@ -78,7 +84,7 @@ describe('ProviderModelExposurePanel', () => {
       />
     ));
 
-    fireEvent.click(screen.getByText('Show all'));
+    fireEvent.click(screen.getByText('Enable all'));
 
     await waitFor(() => {
       expect(onToggleAll).toHaveBeenCalledWith(hiddenOpenAiRows.slice(0, 2), true);

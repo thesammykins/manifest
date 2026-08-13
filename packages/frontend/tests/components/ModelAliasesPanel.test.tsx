@@ -9,8 +9,6 @@ import type {
   UpdateModelAliasInput,
 } from '../../src/services/api.js';
 
-const successfulVariantCreate = vi.fn().mockResolvedValue({ createdIds: [], failedIds: [] });
-
 function model(route: ModelRoute, displayName = route.model): AvailableModel {
   return {
     model_name: route.model,
@@ -39,7 +37,7 @@ describe('ModelAliasesPanel', () => {
     ).toBe('anthropic-api/claude-opus-4');
   });
 
-  it('creates a direct API-key alias with reasoning_effort params', async () => {
+  it('creates one public model without fixing a reasoning level', async () => {
     const onCreate = vi.fn<(_: CreateModelAliasInput) => Promise<void>>().mockResolvedValue();
     render(() => (
       <ModelAliasesPanel
@@ -49,28 +47,27 @@ describe('ModelAliasesPanel', () => {
         onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
-        onCreateVariants={successfulVariantCreate}
+        getParamSpecs={async () => [reasoningSpec(['low', 'medium', 'high'])]}
       />
     ));
 
     await screen.findByDisplayValue('openai-api/gpt-5');
-    fireEvent.input(screen.getByLabelText('Display'), { target: { value: 'GPT 5 low' } });
-    fireEvent.input(screen.getByLabelText('Reasoning'), { target: { value: 'low' } });
-    fireEvent.click(screen.getByText('Add alias'));
+    fireEvent.input(screen.getByLabelText('Display'), { target: { value: 'GPT 5' } });
+    fireEvent.click(screen.getByText('Add model'));
 
     await waitFor(() => {
       expect(onCreate).toHaveBeenCalledWith({
         model_id: 'openai-api/gpt-5',
-        display_name: 'GPT 5 low',
+        display_name: 'GPT 5',
         source_kind: 'direct',
         route: { provider: 'openai', authType: 'api_key', model: 'gpt-5' },
-        request_params: { reasoning_effort: 'low' },
+        request_params: null,
         response_mode: 'buffered',
       });
     });
   });
 
-  it('creates a subscription alias with nested reasoning params', async () => {
+  it('creates one optional fixed reasoning alias using the provider parameter path', async () => {
     const onCreate = vi.fn<(_: CreateModelAliasInput) => Promise<void>>().mockResolvedValue();
     render(() => (
       <ModelAliasesPanel
@@ -80,18 +77,30 @@ describe('ModelAliasesPanel', () => {
         onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
-        onCreateVariants={successfulVariantCreate}
+        getParamSpecs={async () => [
+          {
+            ...reasoningSpec(['low', 'high']),
+            authType: 'subscription',
+            model: 'gpt-5-codex',
+            path: 'reasoning.effort',
+          },
+        ]}
       />
     ));
 
     await screen.findByDisplayValue('openai-subscription/gpt-5-codex');
-    fireEvent.input(screen.getByLabelText('Reasoning'), { target: { value: 'high' } });
-    fireEvent.click(screen.getByText('Add alias'));
+    await waitFor(() => {
+      expect((screen.getByLabelText('Reasoning level') as HTMLSelectElement).options.length).toBe(
+        3,
+      );
+    });
+    fireEvent.input(screen.getByLabelText('Reasoning level'), { target: { value: 'high' } });
+    fireEvent.click(screen.getByText('Add fixed alias'));
 
     await waitFor(() => {
       expect(onCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model_id: 'openai-subscription/gpt-5-codex',
+          model_id: 'openai-subscription/gpt-5-codex-high',
           route: { provider: 'openai', authType: 'subscription', model: 'gpt-5-codex' },
           request_params: { reasoning: { effort: 'high' } },
         }),
@@ -130,7 +139,6 @@ describe('ModelAliasesPanel', () => {
         onUpdate={onUpdate}
         onToggle={onToggle}
         onDelete={onDelete}
-        onCreateVariants={successfulVariantCreate}
       />
     ));
 
@@ -189,11 +197,21 @@ describe('ModelAliasesPanel', () => {
         onUpdate={onUpdate}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
-        onCreateVariants={successfulVariantCreate}
+        getParamSpecs={async () => [reasoningSpec(['low', 'medium', 'high'])]}
       />
     ));
 
-    fireEvent.input(screen.getByDisplayValue('low'), { target: { value: 'high' } });
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText('Fixed reasoning level') as HTMLSelectElement).options.length,
+      ).toBe(3);
+    });
+    fireEvent.input(screen.getByLabelText('Fixed reasoning level'), {
+      target: { value: 'high' },
+    });
+    await waitFor(() => {
+      expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(false);
+    });
     fireEvent.click(screen.getByText('Save'));
 
     await waitFor(() => {
@@ -206,20 +224,31 @@ describe('ModelAliasesPanel', () => {
     });
   });
 
-  it('reports every created variant after a successful bulk create', async () => {
-    const onCreateVariants = vi.fn().mockResolvedValue({
-      createdIds: ['openai-api/gpt-5-low', 'openai-api/gpt-5-high'],
-      failedIds: [],
-    });
+  it('shows supported reasoning levels on a base model instead of duplicate rows', async () => {
+    const alias = {
+      id: 'alias-base',
+      tenant_id: 'tenant-1',
+      agent_id: 'agent-1',
+      model_id: 'openai-api/gpt-5',
+      display_name: 'GPT 5',
+      enabled: true,
+      source_kind: 'direct',
+      source_key: null,
+      route: { provider: 'openai', authType: 'api_key', model: 'gpt-5' },
+      fallback_routes: null,
+      request_params: null,
+      response_mode: 'buffered',
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    } as ModelAlias;
     render(() => (
       <ModelAliasesPanel
-        aliases={[]}
+        aliases={[alias]}
         models={[model({ provider: 'openai', authType: 'api_key', model: 'gpt-5' })]}
         onCreate={vi.fn<(_: CreateModelAliasInput) => Promise<void>>()}
         onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
-        onCreateVariants={onCreateVariants}
         getParamSpecs={async () => [
           {
             provider: 'openai',
@@ -236,35 +265,13 @@ describe('ModelAliasesPanel', () => {
       />
     ));
 
-    await screen.findByDisplayValue('openai-api/gpt-5');
     await waitFor(() => {
-      expect((screen.getByText('Expose variants') as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.getByText('low · high selectable')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Expose variants'));
-
-    await waitFor(() => {
-      expect(onCreateVariants).toHaveBeenCalledTimes(1);
-    });
-    expect(onCreateVariants).toHaveBeenCalledWith([
-      expect.objectContaining({
-        model_id: 'openai-api/gpt-5-low',
-        request_params: { reasoning_effort: 'low' },
-      }),
-      expect.objectContaining({
-        model_id: 'openai-api/gpt-5-high',
-        request_params: { reasoning_effort: 'high' },
-      }),
-    ]);
-    expect((await screen.findByRole('status')).textContent?.trim()).toBe(
-      'Created: openai-api/gpt-5-low, openai-api/gpt-5-high.',
-    );
+    expect(screen.getAllByLabelText('Public model ID')).toHaveLength(1);
   });
 
-  it('reports a duplicate middle variant without hiding later successes', async () => {
-    const onCreateVariants = vi.fn().mockResolvedValue({
-      createdIds: ['openai-api/gpt-5-low', 'openai-api/gpt-5-high'],
-      failedIds: ['openai-api/gpt-5-medium'],
-    });
+  it('disables fixed aliases when a model has no selectable reasoning levels', async () => {
     render(() => (
       <ModelAliasesPanel
         aliases={[]}
@@ -273,49 +280,14 @@ describe('ModelAliasesPanel', () => {
         onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
         onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
         onDelete={vi.fn<(_: string) => Promise<void>>()}
-        onCreateVariants={onCreateVariants}
-        getParamSpecs={async () => [reasoningSpec(['low', 'medium', 'high'])]}
+        getParamSpecs={async () => []}
       />
     ));
 
     await screen.findByDisplayValue('openai-api/gpt-5');
-    const expose = screen.getByText('Expose variants') as HTMLButtonElement;
-    await waitFor(() => expect(expose.disabled).toBe(false));
-    fireEvent.click(expose);
-
-    expect((await screen.findByRole('status')).textContent).toBe(
-      'Created: openai-api/gpt-5-low, openai-api/gpt-5-high. Failed: openai-api/gpt-5-medium.',
-    );
-  });
-
-  it('reports network failures and prevents double-submit while creating variants', async () => {
-    let fail: ((reason?: unknown) => void) | undefined;
-    const onCreateVariants = vi.fn(
-      () =>
-        new Promise<{ createdIds: string[]; failedIds: string[] }>((_, reject) => (fail = reject)),
-    );
-    render(() => (
-      <ModelAliasesPanel
-        aliases={[]}
-        models={[model({ provider: 'openai', authType: 'api_key', model: 'gpt-5' })]}
-        onCreate={vi.fn<(_: CreateModelAliasInput) => Promise<void>>()}
-        onUpdate={vi.fn<(_: string, __: UpdateModelAliasInput) => Promise<void>>()}
-        onToggle={vi.fn<(_: string, __: boolean) => Promise<void>>()}
-        onDelete={vi.fn<(_: string) => Promise<void>>()}
-        onCreateVariants={onCreateVariants}
-        getParamSpecs={async () => [reasoningSpec(['low'])]}
-      />
-    ));
-
-    const expose = screen.getByText('Expose variants') as HTMLButtonElement;
-    await waitFor(() => expect(expose.disabled).toBe(false));
-    fireEvent.click(expose);
-    fireEvent.click(expose);
-    expect(onCreateVariants).toHaveBeenCalledTimes(1);
-    expect((screen.getByText('Add alias') as HTMLButtonElement).disabled).toBe(true);
-
-    fail?.(new Error('Network unavailable'));
-    expect((await screen.findByRole('status')).textContent).toBe('Failed: openai-api/gpt-5-low.');
+    await waitFor(() => {
+      expect((screen.getByText('Add fixed alias') as HTMLButtonElement).disabled).toBe(true);
+    });
   });
 });
 

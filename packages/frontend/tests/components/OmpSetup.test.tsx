@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render } from '@solidjs/testing-library';
 
 import OmpSetup, { getOmpModelsYaml, OMP_LAUNCH_COMMAND } from '../../src/components/OmpSetup';
+import type { AvailableModel, ModelAlias } from '../../src/services/api';
 
 const writeText = vi.fn().mockResolvedValue(undefined);
 
@@ -35,6 +36,40 @@ describe('OmpSetup', () => {
 
     expect(parsedBaseUrl).toBe('https://example.test/v1#route');
     expect(parsedApiKey).toBe('mnfst_key: value');
+  });
+
+  it('overrides one discovered model with its selectable reasoning levels', () => {
+    const aliases = [
+      {
+        model_id: 'openai-subscription/gpt-5.6-sol',
+        display_name: 'GPT-5.6 Sol',
+        enabled: true,
+        source_kind: 'direct',
+        route: { provider: 'openai', authType: 'subscription', model: 'gpt-5.6-sol' },
+        request_params: null,
+      },
+    ] as ModelAlias[];
+    const availableModels = [
+      {
+        model_name: 'gpt-5.6-sol',
+        provider: 'openai',
+        auth_type: 'subscription',
+        reasoning_efforts: ['low', 'medium', 'high', 'xhigh'],
+      },
+    ] as AvailableModel[];
+
+    const yaml = getOmpModelsYaml(
+      'https://manifest.example/v1',
+      'mnfst_test_key',
+      aliases,
+      availableModels,
+    );
+
+    expect(yaml).toContain('api: openai-responses');
+    expect(yaml).toContain('"openai-subscription/gpt-5.6-sol":');
+    expect(yaml).toContain('efforts: ["low","medium","high","xhigh"]');
+    expect(yaml).toContain('supportsReasoningEffort: true');
+    expect(yaml).not.toContain('gpt-5.6-sol-high:');
   });
 
   it('renders the config, copies the full key, and provides the launch command', async () => {

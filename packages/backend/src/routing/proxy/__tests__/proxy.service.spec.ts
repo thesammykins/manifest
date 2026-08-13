@@ -438,6 +438,7 @@ describe('ProxyService — orchestration', () => {
             agentId: 'agent-1',
             scopeKey: 'model-alias:alias-1',
             requestParams: { reasoning_effort: 'high' },
+            reasoningEffort: 'high',
           },
         }),
       );
@@ -524,6 +525,7 @@ describe('ProxyService — orchestration', () => {
             agentId: 'agent-1',
             scopeKey: 'model-alias:alias-1',
             requestParams: { reasoning_effort: 'high' },
+            reasoningEffort: 'high',
           },
         }),
       );
@@ -1490,6 +1492,7 @@ describe('ProxyService — orchestration', () => {
             agentId: 'agent-1',
             scopeKey: 'direct-model:openai:api_key:gpt-5',
             requestParams: { reasoning_effort: 'high' },
+            reasoningEffort: 'high',
           },
         }),
       );
@@ -1527,6 +1530,7 @@ describe('ProxyService — orchestration', () => {
             agentId: 'agent-1',
             scopeKey: 'direct-model:openai:api_key:gpt-5',
             requestParams: undefined,
+            reasoningEffort: 'low',
           },
         }),
       );
@@ -1624,6 +1628,7 @@ describe('ProxyService — orchestration', () => {
             agentId: 'agent-1',
             scopeKey: 'direct-model:openai:api_key:gpt-5',
             requestParams: { reasoning_effort: 'high' },
+            reasoningEffort: 'high',
           },
         }),
       );

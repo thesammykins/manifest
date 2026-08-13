@@ -79,6 +79,7 @@ describe('ModelController', () => {
     };
     mockProviderParamSpecs = {
       getCapabilities: jest.fn().mockResolvedValue(null),
+      getSpecs: jest.fn().mockResolvedValue([]),
     };
     mockModelsDevSync = {
       lookupModel: jest.fn().mockReturnValue(null),

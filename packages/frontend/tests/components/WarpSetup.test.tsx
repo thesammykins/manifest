@@ -45,7 +45,6 @@ describe('WarpSetup', () => {
     expect(container.textContent).toContain('custom inference endpoint');
     expect(container.textContent).toContain('config_key');
     expect(container.textContent).toContain('"api_key": "mnfst_live..."');
-    expect(container.textContent).toContain('"name": "auto"');
     expect(container.textContent).toContain('"name": "manifest/auto"');
     expect(container.textContent).toContain('"name": "openai-subscription/gpt-5.5-high"');
     expect(container.textContent).toContain('"name": "manifest/header-coding"');
@@ -65,7 +64,6 @@ describe('WarpSetup', () => {
     ) as { models: Array<{ name: string; alias: string }> };
 
     expect(parsed.models.map((model) => model.name)).toEqual([
-      'auto',
       'manifest/auto',
       'openai-subscription/gpt-5.5-high',
       'manifest/header-coding',

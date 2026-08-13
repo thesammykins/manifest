@@ -33,16 +33,8 @@ interface Props {
   onUpdate: (id: string, patch: UpdateModelAliasInput) => Promise<void>;
   onToggle: (id: string, enabled: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onCreateVariants: (inputs: CreateModelAliasInput[]) => Promise<VariantCreationResult>;
   getParamSpecs?: (route: ModelRoute) => Promise<readonly ProviderParamSpec[]>;
 }
-
-export interface VariantCreationResult {
-  createdIds: string[];
-  failedIds: string[];
-}
-
-const FALLBACK_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
 
 const ModelAliasesPanel: Component<Props> = (props) => {
   const [selectedKey, setSelectedKey] = createSignal('');
@@ -50,8 +42,6 @@ const ModelAliasesPanel: Component<Props> = (props) => {
   const [displayName, setDisplayName] = createSignal('');
   const [reasoningEffort, setReasoningEffort] = createSignal('');
   const [creating, setCreating] = createSignal(false);
-  const [creatingVariants, setCreatingVariants] = createSignal(false);
-  const [variantResult, setVariantResult] = createSignal<VariantCreationResult | null>(null);
 
   const routeOptions = createMemo<DirectRouteOption[]>(() =>
     props.models
@@ -82,6 +72,20 @@ const ModelAliasesPanel: Component<Props> = (props) => {
   const reasoningEfforts = createMemo(() =>
     reasoningEffortOptions(selectedSpecs() ?? [], reasoningEffort()),
   );
+  const baseAliases = createMemo(() =>
+    props.aliases.filter(
+      (alias) => alias.source_kind === 'direct' && !reasoningEffortFromParams(alias.request_params),
+    ),
+  );
+  const fixedAliases = createMemo(() =>
+    props.aliases.filter(
+      (alias) =>
+        alias.source_kind === 'direct' && !!reasoningEffortFromParams(alias.request_params),
+    ),
+  );
+  const routingAliases = createMemo(() =>
+    props.aliases.filter((alias) => alias.source_kind !== 'direct'),
+  );
 
   createEffect(() => {
     const first = routeOptions()[0];
@@ -108,40 +112,34 @@ const ModelAliasesPanel: Component<Props> = (props) => {
         display_name: displayName().trim() || null,
         source_kind: 'direct',
         route: option.route,
-        request_params: reasoningParams(option.route, reasoningEffort(), selectedSpecs() ?? []),
+        request_params: null,
         response_mode: 'buffered',
       });
       setDisplayName('');
-      setReasoningEffort('');
       setModelId(option.suggestedId);
     } finally {
       setCreating(false);
     }
   };
 
-  const createReasoningVariants = async () => {
+  const createFixedReasoningAlias = async () => {
     const option = selectedOption();
     const baseId = modelId().trim();
-    if (!option || !baseId) return;
-    const efforts = reasoningEfforts().filter((effort) => effort !== '');
-    if (efforts.length === 0) return;
-    const inputs = efforts.map((effort) => ({
-      model_id: `${baseId}-${effort}`,
-      display_name: `${displayName().trim() || option.route.model} ${effort}`,
-      source_kind: 'direct' as const,
-      route: option.route,
-      request_params: reasoningParams(option.route, effort, selectedSpecs() ?? []),
-      response_mode: 'buffered' as const,
-    }));
-
-    setVariantResult(null);
-    setCreatingVariants(true);
+    const effort = reasoningEffort();
+    if (!option || !baseId || !effort) return;
+    setCreating(true);
     try {
-      setVariantResult(await props.onCreateVariants(inputs));
-    } catch {
-      setVariantResult({ createdIds: [], failedIds: inputs.map((input) => input.model_id) });
+      await props.onCreate({
+        model_id: `${baseId}-${effort}`,
+        display_name: `${displayName().trim() || option.route.model} ${effort}`,
+        source_kind: 'direct',
+        route: option.route,
+        request_params: reasoningParams(option.route, effort, selectedSpecs() ?? []),
+        response_mode: 'buffered',
+      });
+      setReasoningEffort('');
     } finally {
-      setCreatingVariants(false);
+      setCreating(false);
     }
   };
 
@@ -149,8 +147,11 @@ const ModelAliasesPanel: Component<Props> = (props) => {
     <section class="model-aliases-panel">
       <div class="model-aliases-panel__header">
         <div>
-          <h2 class="routing-section__title">Model aliases</h2>
-          <p class="routing-section__subtitle">Advertise opt-in model IDs through `/v1/models`.</p>
+          <h2 class="routing-section__title">Harness model catalog</h2>
+          <p class="routing-section__subtitle">
+            Add one public model ID per route. Compatible harnesses receive its reasoning levels as
+            a selector, not as duplicate models.
+          </p>
         </div>
       </div>
 
@@ -179,82 +180,111 @@ const ModelAliasesPanel: Component<Props> = (props) => {
             placeholder="Optional"
           />
         </label>
+        <button
+          type="button"
+          class="btn btn--primary btn--sm"
+          disabled={creating() || !selectedOption() || !modelId().trim()}
+          onClick={createAlias}
+        >
+          {creating() ? 'Adding...' : 'Add model'}
+        </button>
+      </div>
+
+      <div class="model-aliases-panel__fixed-alias">
+        <div>
+          <strong>Optional fixed reasoning alias</strong>
+          <span>Create a separate ID only when a workflow must always use one effort.</span>
+        </div>
         <label class="model-aliases-panel__field model-aliases-panel__field--short">
-          <span>Reasoning</span>
+          <span>Reasoning level</span>
           <select
             value={reasoningEffort()}
             onInput={(e) => setReasoningEffort(e.currentTarget.value)}
           >
             <For each={reasoningEfforts()}>
-              {(effort) => <option value={effort}>{effort || 'Default'}</option>}
+              {(effort) => <option value={effort}>{effort || 'Choose a level'}</option>}
             </For>
           </select>
         </label>
         <button
           type="button"
-          class="btn btn--primary btn--sm"
-          disabled={creating() || creatingVariants() || !selectedOption() || !modelId().trim()}
-          onClick={createAlias}
-        >
-          {creating() ? 'Adding...' : 'Add alias'}
-        </button>
-        <button
-          type="button"
           class="btn btn--outline btn--sm"
           disabled={
-            creatingVariants() ||
             creating() ||
             selectedSpecs.loading ||
             !selectedOption() ||
             !modelId().trim() ||
-            reasoningEfforts().filter((effort) => effort !== '').length === 0
+            !reasoningEffort()
           }
-          onClick={createReasoningVariants}
+          onClick={createFixedReasoningAlias}
         >
-          {creatingVariants() ? 'Adding...' : 'Expose variants'}
+          Add fixed alias
         </button>
       </div>
 
-      <Show when={variantResult()} keyed>
-        {(result) => <VariantStatus result={result} />}
-      </Show>
-
       <Show
         when={props.aliases.length > 0}
-        fallback={<div class="model-aliases-panel__empty">No aliases configured.</div>}
+        fallback={
+          <div class="model-aliases-panel__empty">
+            No provider models are advertised yet. Manifest Auto remains available.
+          </div>
+        }
       >
         <div class="model-aliases-panel__list">
-          <For each={props.aliases}>
-            {(alias) => (
-              <ModelAliasRow
-                alias={alias}
-                onUpdate={props.onUpdate}
-                onToggle={props.onToggle}
-                onDelete={props.onDelete}
-                getParamSpecs={props.getParamSpecs}
-              />
-            )}
-          </For>
+          <AliasGroup
+            title="Models"
+            aliases={baseAliases()}
+            onUpdate={props.onUpdate}
+            onToggle={props.onToggle}
+            onDelete={props.onDelete}
+            getParamSpecs={props.getParamSpecs}
+          />
+          <AliasGroup
+            title="Fixed reasoning aliases"
+            aliases={fixedAliases()}
+            onUpdate={props.onUpdate}
+            onToggle={props.onToggle}
+            onDelete={props.onDelete}
+            getParamSpecs={props.getParamSpecs}
+          />
+          <AliasGroup
+            title="Routing aliases"
+            aliases={routingAliases()}
+            onUpdate={props.onUpdate}
+            onToggle={props.onToggle}
+            onDelete={props.onDelete}
+            getParamSpecs={props.getParamSpecs}
+          />
         </div>
       </Show>
     </section>
   );
 };
 
-const VariantStatus: Component<{ result: VariantCreationResult }> = (props) => (
-  <div
-    class="model-aliases-panel__variant-status"
-    classList={{ 'model-aliases-panel__variant-status--error': props.result.failedIds.length > 0 }}
-    role="status"
-    aria-live="polite"
-  >
-    <Show when={props.result.createdIds.length > 0}>
-      <span>Created: {props.result.createdIds.join(', ')}. </span>
-    </Show>
-    <Show when={props.result.failedIds.length > 0}>
-      <span>Failed: {props.result.failedIds.join(', ')}.</span>
-    </Show>
-  </div>
+const AliasGroup: Component<{
+  title: string;
+  aliases: ModelAlias[];
+  onUpdate: Props['onUpdate'];
+  onToggle: Props['onToggle'];
+  onDelete: Props['onDelete'];
+  getParamSpecs?: Props['getParamSpecs'];
+}> = (props) => (
+  <Show when={props.aliases.length > 0}>
+    <section class="model-aliases-panel__group">
+      <h3>{props.title}</h3>
+      <For each={props.aliases}>
+        {(alias) => (
+          <ModelAliasRow
+            alias={alias}
+            onUpdate={props.onUpdate}
+            onToggle={props.onToggle}
+            onDelete={props.onDelete}
+            getParamSpecs={props.getParamSpecs}
+          />
+        )}
+      </For>
+    </section>
+  </Show>
 );
 
 const ModelAliasRow: Component<{
@@ -267,7 +297,7 @@ const ModelAliasRow: Component<{
   const [modelId, setModelId] = createSignal(props.alias.model_id);
   const [displayName, setDisplayName] = createSignal(props.alias.display_name ?? '');
   const [reasoningEffortDraft, setReasoningEffortDraft] = createSignal(
-    reasoningEffort(props.alias.request_params) ?? '',
+    reasoningEffortFromParams(props.alias.request_params) ?? '',
   );
   const [credentialModeDraft, setCredentialModeDraft] = createSignal<CredentialSelectionMode>(
     directCredentialMode(props.alias),
@@ -282,18 +312,21 @@ const ModelAliasRow: Component<{
   const reasoningEfforts = createMemo(() =>
     reasoningEffortOptions(aliasSpecs() ?? [], reasoningEffortDraft()),
   );
+  const isFixedReasoningAlias = () =>
+    props.alias.source_kind === 'direct' && !!reasoningEffortFromParams(props.alias.request_params);
 
   createEffect(() => {
     setModelId(props.alias.model_id);
     setDisplayName(props.alias.display_name ?? '');
-    setReasoningEffortDraft(reasoningEffort(props.alias.request_params) ?? '');
+    setReasoningEffortDraft(reasoningEffortFromParams(props.alias.request_params) ?? '');
     setCredentialModeDraft(directCredentialMode(props.alias));
   });
 
   const changed = () =>
     modelId().trim() !== props.alias.model_id ||
     (displayName().trim() || null) !== props.alias.display_name ||
-    reasoningEffortDraft() !== (reasoningEffort(props.alias.request_params) ?? '') ||
+    (isFixedReasoningAlias() &&
+      reasoningEffortDraft() !== (reasoningEffortFromParams(props.alias.request_params) ?? '')) ||
     (props.alias.source_kind === 'direct' &&
       credentialModeDraft() !== directCredentialMode(props.alias));
 
@@ -306,11 +339,15 @@ const ModelAliasRow: Component<{
         display_name: displayName().trim() || null,
         ...(props.alias.source_kind === 'direct' && props.alias.route
           ? {
-              request_params: reasoningParams(
-                props.alias.route,
-                reasoningEffortDraft(),
-                aliasSpecs() ?? [],
-              ),
+              ...(isFixedReasoningAlias()
+                ? {
+                    request_params: reasoningParams(
+                      props.alias.route,
+                      reasoningEffortDraft(),
+                      aliasSpecs() ?? [],
+                    ),
+                  }
+                : {}),
               credential_mode: credentialModeDraft(),
             }
           : {}),
@@ -334,25 +371,39 @@ const ModelAliasRow: Component<{
       <div class="model-alias-row__main">
         <input
           class="model-alias-row__id"
+          aria-label="Public model ID"
           value={modelId()}
           onInput={(e) => setModelId(e.currentTarget.value)}
         />
         <input
           class="model-alias-row__display"
+          aria-label="Display name"
           value={displayName()}
           onInput={(e) => setDisplayName(e.currentTarget.value)}
           placeholder="Display name"
         />
         <Show when={props.alias.source_kind === 'direct' && props.alias.route}>
-          <select
-            class="model-alias-row__reasoning"
-            value={reasoningEffortDraft()}
-            onInput={(e) => setReasoningEffortDraft(e.currentTarget.value)}
+          <Show
+            when={isFixedReasoningAlias()}
+            fallback={
+              <span class="model-alias-row__reasoning-summary">
+                {reasoningEfforts().filter(Boolean).length > 0
+                  ? `${reasoningEfforts().filter(Boolean).join(' · ')} selectable`
+                  : 'Provider default'}
+              </span>
+            }
           >
-            <For each={reasoningEfforts()}>
-              {(effort) => <option value={effort}>{effort || 'Default'}</option>}
-            </For>
-          </select>
+            <select
+              class="model-alias-row__reasoning"
+              aria-label="Fixed reasoning level"
+              value={reasoningEffortDraft()}
+              onInput={(e) => setReasoningEffortDraft(e.currentTarget.value)}
+            >
+              <For each={reasoningEfforts().filter(Boolean)}>
+                {(effort) => <option value={effort}>{effort}</option>}
+              </For>
+            </select>
+          </Show>
           <select
             class="model-alias-row__reasoning"
             aria-label="Credential selection mode"
@@ -420,7 +471,7 @@ function describeAlias(alias: ModelAlias): string {
     const route = alias.route;
     const key = route.keyLabel ? ` · ${route.keyLabel}` : '';
     const mode = directCredentialMode(alias) === 'same_provider_failover' ? ' · failover' : '';
-    const effort = reasoningEffort(alias.request_params);
+    const effort = reasoningEffortFromParams(alias.request_params);
     return `${displayProvider(route.provider)} ${authLabel(route.authType)}${key} · ${
       route.model
     }${mode}${effort ? ` · ${effort}` : ''}`;
@@ -435,7 +486,7 @@ function directCredentialMode(alias: ModelAlias): CredentialSelectionMode {
   return alias.route?.keyLabel ? 'pinned' : 'same_provider_failover';
 }
 
-function reasoningEffort(params: RequestParamDefaults | null): string | null {
+function reasoningEffortFromParams(params: RequestParamDefaults | null): string | null {
   const flat = params?.reasoning_effort;
   if (typeof flat === 'string') return flat;
   const nested = params?.reasoning;
@@ -465,9 +516,6 @@ function reasoningEffortOptions(specs: readonly ProviderParamSpec[], current: st
     for (const value of spec.values ?? []) {
       if (typeof value === 'string') values.add(value);
     }
-  }
-  if (values.size === 0) {
-    for (const effort of FALLBACK_REASONING_EFFORTS) values.add(effort);
   }
   if (current) values.add(current);
   return ['', ...values];

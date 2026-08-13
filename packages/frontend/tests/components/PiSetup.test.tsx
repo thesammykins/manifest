@@ -42,7 +42,6 @@ describe('PiSetup', () => {
     expect(container.textContent).toContain('~/.pi/agent/models.json');
     expect(container.textContent).toContain('"api": "openai-completions"');
     expect(container.textContent).toContain('"apiKey": "mnfst_live..."');
-    expect(container.textContent).toContain('"id": "auto"');
     expect(container.textContent).toContain('"id": "manifest/auto"');
     expect(container.textContent).toContain('"id": "openai-subscription/gpt-5.5"');
     expect(container.textContent).toContain('"id": "openai-subscription/gpt-5.5-high"');

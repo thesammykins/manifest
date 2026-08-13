@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type {
@@ -10,6 +10,7 @@ import type {
 import { applyRequestParamDefaults } from 'manifest-shared';
 import { AgentModelParamsService } from '../routing-core/agent-model-params.service';
 import { ProviderParamSpecService } from '../routing-core/provider-param-spec.service';
+import { reasoningEffortParams } from '../reasoning-effort';
 
 /**
  * Context for the per-attempt param-defaults merge. Carries the agentId so
@@ -26,6 +27,8 @@ export interface ParamMergeContext {
   scopeKey: string;
   /** Explicit direct-model or alias params, applied consistently to its fallback chain. */
   requestParams?: RequestParamDefaults | null;
+  /** Canonical client-selected effort, remapped to each attempted provider route. */
+  reasoningEffort?: string;
 }
 
 interface ForwardProviderOptions {
@@ -187,7 +190,22 @@ export class ProxyFallbackService {
             model,
           );
     const specs = await this.providerParamSpecs.getSpecs(provider, authType as AuthType, model);
-    return applyRequestParamDefaults(body, modelParams, specs);
+    let effectiveBody = body;
+    let effectiveParams = modelParams;
+    if (ctx.reasoningEffort) {
+      const resolved = reasoningEffortParams(specs, ctx.reasoningEffort);
+      if (!resolved) {
+        throw new BadRequestException(
+          `Reasoning effort "${ctx.reasoningEffort}" is not supported for ${provider}/${model}.`,
+        );
+      }
+      effectiveBody = withoutReasoningEffortParams(body) ?? body;
+      effectiveParams = mergeRequestParamDefaults(
+        withoutReasoningEffortParams(effectiveParams),
+        resolved.params,
+      );
+    }
+    return applyRequestParamDefaults(effectiveBody, effectiveParams, specs);
   }
 
   async tryFallbacks(
@@ -417,7 +435,10 @@ export class ProxyFallbackService {
     try {
       const forward = await this.forwardToProvider(opts);
       const refreshedResult = await this.retryOAuthSubscriptionAfterRejectedToken(opts, forward);
-      const result = await this.retrySameProviderCredentialAfterRejectedToken(opts, refreshedResult);
+      const result = await this.retrySameProviderCredentialAfterRejectedToken(
+        opts,
+        refreshedResult,
+      );
       this.recordRateLimitCooldown(opts, result.response);
       return {
         ...result,
@@ -874,4 +895,45 @@ export class ProxyFallbackService {
 
 export function normalizeProviderModel(provider: string, model: string): string {
   return provider.toLowerCase() === 'anthropic' ? normalizeAnthropicShortModelId(model) : model;
+}
+
+function mergeRequestParamDefaults(
+  base: RequestParamDefaults | null | undefined,
+  overrides: RequestParamDefaults,
+): RequestParamDefaults {
+  const out = structuredClone((base ?? {}) as Record<string, unknown>);
+  for (const [key, value] of Object.entries(overrides)) {
+    const current = out[key];
+    out[key] =
+      isRecord(current) && isRecord(value)
+        ? mergeRequestParamDefaults(current as RequestParamDefaults, value as RequestParamDefaults)
+        : value;
+  }
+  return out as RequestParamDefaults;
+}
+
+function withoutReasoningEffortParams<T extends Record<string, unknown>>(
+  value: T | null | undefined,
+): T | null | undefined {
+  if (!value) return value;
+  const out = structuredClone(value);
+  delete out.reasoning_effort;
+
+  if (isRecord(out.reasoning)) {
+    delete out.reasoning.effort;
+    if (Object.keys(out.reasoning).length === 0) delete out.reasoning;
+  }
+
+  if (isRecord(out.generationConfig) && isRecord(out.generationConfig.thinkingConfig)) {
+    delete out.generationConfig.thinkingConfig.thinkingLevel;
+    if (Object.keys(out.generationConfig.thinkingConfig).length === 0) {
+      delete out.generationConfig.thinkingConfig;
+    }
+    if (Object.keys(out.generationConfig).length === 0) delete out.generationConfig;
+  }
+  return out;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -11,7 +11,7 @@ import PiSetup from './PiSetup.jsx';
 import OmpSetup from './OmpSetup.jsx';
 import CodexSetup from './CodexSetup.jsx';
 import type { ToolkitId } from '../services/framework-snippets.js';
-import type { ModelAlias } from '../services/api.js';
+import type { AvailableModel, ModelAlias } from '../services/api.js';
 
 type SetupTab = 'toolkits' | 'agents';
 type AgentId =
@@ -50,6 +50,7 @@ interface Props {
   hideFullKey?: boolean;
   platform?: string | null;
   modelAliases?: ModelAlias[];
+  availableModels?: AvailableModel[];
 }
 
 const PLATFORM_TO_TOOLKIT: Record<string, ToolkitId> = {
@@ -69,6 +70,7 @@ const SetupStepAddProvider: Component<Props> = (props) => {
     keyPrefix: props.keyPrefix,
     baseUrl: props.baseUrl,
     modelAliases: props.modelAliases,
+    availableModels: props.availableModels,
   }));
 
   const isFiltered = () => !!props.platform;

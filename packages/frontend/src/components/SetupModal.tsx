@@ -1,5 +1,5 @@
 import { createResource, Show, type Component } from 'solid-js';
-import { getAgentKey, type ModelAlias } from '../services/api.js';
+import { getAgentKey, getAvailableModels, type ModelAlias } from '../services/api.js';
 import { platformIcon } from 'manifest-shared';
 import ErrorState from './ErrorState.jsx';
 import SetupStepAddProvider from './SetupStepAddProvider.jsx';
@@ -18,6 +18,10 @@ const SetupModal: Component<{
   const [apiKeyData, { refetch: refetchKey }] = createResource(
     () => (props.open ? props.agentName : null),
     (n) => (n ? getAgentKey(n) : null),
+  );
+  const [availableModels] = createResource(
+    () => (props.open ? props.agentName : null),
+    (name) => (name ? getAvailableModels(name).catch(() => []) : []),
   );
 
   const baseUrl = () => {
@@ -103,6 +107,7 @@ const SetupModal: Component<{
               baseUrl={baseUrl()}
               platform={props.agentPlatform}
               modelAliases={props.modelAliases}
+              availableModels={availableModels() ?? []}
             />
           </Show>
 
