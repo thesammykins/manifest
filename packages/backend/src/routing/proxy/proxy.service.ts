@@ -789,7 +789,6 @@ export class ProxyService {
       );
     }
     const model = normalizeProviderModel(route.provider, route.model);
-    const explicitModelOverride = resolved.explicit_model_override === true;
     const scopeKey = modelParamsScopeForRouting({
       tier: resolved.tier,
       specificityCategory: resolved.specificity_category,
