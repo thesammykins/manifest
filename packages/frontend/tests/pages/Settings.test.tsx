@@ -21,6 +21,8 @@ const mockDeleteAgent = vi.fn();
 const mockRenameAgent = vi.fn();
 const mockRotateAgentKey = vi.fn();
 const mockUpdateAgent = vi.fn();
+const mockGetAvailableModels = vi.fn();
+const mockListModelAliases = vi.fn();
 const mockGetAutofix = vi.fn(() => Promise.resolve({ enabled: false }));
 const mockUpdateAutofix = vi.fn(() => Promise.resolve({ enabled: false }));
 const mockGetRecording = vi.fn(() => Promise.resolve({ enabled: false }));
@@ -32,6 +34,8 @@ vi.mock("../../src/services/api.js", () => ({
   renameAgent: (...args: unknown[]) => mockRenameAgent(...args),
   rotateAgentKey: (...args: unknown[]) => mockRotateAgentKey(...args),
   updateAgent: (...args: unknown[]) => mockUpdateAgent(...args),
+  getAvailableModels: (...args: unknown[]) => mockGetAvailableModels(...args),
+  listModelAliases: (...args: unknown[]) => mockListModelAliases(...args),
   getAutofix: (...args: unknown[]) => mockGetAutofix(...args),
   updateAutofix: (...args: unknown[]) => mockUpdateAutofix(...args),
   getRecording: (...args: unknown[]) => mockGetRecording(...args),
@@ -73,7 +77,14 @@ vi.mock("../../src/components/SetupStepAddProvider.jsx", () => ({
   default: (props: any) => {
     if (mockSetupThrows) throw new Error("render crash");
     return (
-      <div data-testid="setup-add-provider" data-base-url={props.baseUrl ?? ""} data-key={props.apiKey ?? ""} data-platform={props.platform ?? ""} data-key-prefix={props.keyPrefix ?? ""} />
+      <div
+        data-testid="setup-add-provider"
+        data-base-url={props.baseUrl ?? ""}
+        data-key={props.apiKey ?? ""}
+        data-platform={props.platform ?? ""}
+        data-key-prefix={props.keyPrefix ?? ""}
+        data-available-models={JSON.stringify(props.availableModels ?? [])}
+      />
     );
   },
 }));
@@ -145,6 +156,8 @@ describe("Settings", () => {
     mockRenameAgent.mockResolvedValue({ renamed: true, name: "new-name" });
     mockRotateAgentKey.mockResolvedValue({ apiKey: "new-key" });
     mockUpdateAgent.mockResolvedValue({});
+    mockGetAvailableModels.mockResolvedValue([]);
+    mockListModelAliases.mockResolvedValue([]);
   });
 
   it("does not render a duplicate page heading", () => {
@@ -336,6 +349,25 @@ describe("Settings", () => {
       const el = container.querySelector('[data-testid="setup-add-provider"]');
       expect(el).not.toBeNull();
       expect(el!.getAttribute("data-platform")).toBe("openclaw");
+    });
+  });
+
+  it("passes available model reasoning metadata to the setup instructions", async () => {
+    mockGetAvailableModels.mockResolvedValue([
+      {
+        model_name: "gpt-5.6-sol",
+        provider: "openai",
+        auth_type: "subscription",
+        reasoning_efforts: ["none", "low", "medium", "high", "xhigh", "max"],
+      },
+    ]);
+
+    const { container } = render(() => <Settings />);
+
+    await vi.waitFor(() => {
+      expect(mockGetAvailableModels).toHaveBeenCalledWith("test-agent");
+      const setup = container.querySelector('[data-testid="setup-add-provider"]');
+      expect(setup?.getAttribute("data-available-models")).toContain('"reasoning_efforts"');
     });
   });
 

@@ -13,6 +13,7 @@ import {
   deleteAgent,
   getAgentInfo,
   getAgentKey,
+  getAvailableModels,
   listModelAliases,
   renameAgent,
   rotateAgentKey,
@@ -56,6 +57,10 @@ const Settings: Component = () => {
   const [modelAliases] = createResource(
     () => agentName(),
     (name) => listModelAliases(name).catch(() => []),
+  );
+  const [availableModels] = createResource(
+    () => agentName(),
+    (name) => getAvailableModels(name).catch(() => []),
   );
 
   const currentCategory = () => (agentInfo()?.agent_category as AgentCategory) ?? null;
@@ -335,6 +340,7 @@ const Settings: Component = () => {
               hideFullKey
               platform={currentPlatform()}
               modelAliases={modelAliases() ?? []}
+              availableModels={availableModels() ?? []}
             />
           </div>
         </Show>
