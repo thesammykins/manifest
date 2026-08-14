@@ -32,6 +32,8 @@ Manifest deliberately keeps provider availability separate from harness visibili
 
 Add a provider model to the harness catalog once. When the provider reports supported reasoning efforts, the generated OMP setup adds a `modelOverrides` entry so OMP renders one model with its reasoning selector. Manifest maps the selected effort to the attempted provider's parameter shape, including Responses API `reasoning.effort`, Chat Completions `reasoning_effort`, and provider-specific nested parameters.
 
+Copy the generated provider block again after changing the harness model catalog. OMP discovers model IDs dynamically, but its generic OpenAI discovery does not import reasoning controls from `/v1/models`; the generated `modelOverrides` entries supply that harness-specific metadata. OMP exposes reasoning-off separately, so Manifest omits provider `none` from the selectable effort ladder while preserving OMP's off control.
+
 Create a fixed reasoning alias only when a workflow needs a separate ID that always pins one effort. Manifest no longer generates every effort as a separate model by default.
 
 Run `omp models find manifest` to confirm discovery if the model is not selectable. Check that the key and endpoint are current and that `manifest` is not listed in OMP's `disabledProviders` setting.

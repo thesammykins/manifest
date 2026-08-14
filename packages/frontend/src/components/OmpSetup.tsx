@@ -13,6 +13,12 @@ interface Props {
 }
 
 export const OMP_LAUNCH_COMMAND = 'omp --model manifest/auto';
+const OMP_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+function ompReasoningEfforts(efforts: readonly string[]): string[] {
+  const supported = new Set(efforts.map((effort) => effort.trim().toLowerCase()));
+  return OMP_REASONING_EFFORTS.filter((effort) => supported.has(effort));
+}
 
 /** Serialize untrusted endpoint/key strings as JSON scalars, which are valid YAML scalars. */
 export function getOmpModelsYaml(
@@ -31,19 +37,20 @@ export function getOmpModelsYaml(
     '    discovery:',
     '      type: openai-models-list',
   ];
-  const reasoningModels = exposedSetupModels(modelAliases, availableModels).filter(
-    (model) => model.reasoningEfforts?.length,
-  );
+  const reasoningModels = exposedSetupModels(modelAliases, availableModels).flatMap((model) => {
+    const efforts = ompReasoningEfforts(model.reasoningEfforts ?? []);
+    return efforts.length > 0 ? [{ model, efforts }] : [];
+  });
   if (reasoningModels.length > 0) {
     lines.push('    modelOverrides:');
-    for (const model of reasoningModels) {
+    for (const { model, efforts } of reasoningModels) {
       lines.push(
         `      ${JSON.stringify(model.id)}:`,
         `        name: ${JSON.stringify(model.name)}`,
         '        reasoning: true',
         '        thinking:',
         '          mode: effort',
-        `          efforts: ${JSON.stringify(model.reasoningEfforts)}`,
+        `          efforts: ${JSON.stringify(efforts)}`,
         '        compat:',
         '          supportsReasoningEffort: true',
       );
@@ -67,7 +74,8 @@ const OmpSetup: Component<Props> = (props) => {
       <p class="setup-method__hint">
         Add this provider to <code class="setup-model-hint__code">~/.omp/agent/models.yml</code>.
         OMP discovers only the models you advertise from Manifest. Reasoning-capable models stay as
-        one model with OMP's reasoning selector.
+        one model with OMP's reasoning selector. Copy this block again after changing the harness
+        model catalog so its reasoning metadata stays current.
       </p>
 
       <div class="setup-cli-block">

@@ -54,7 +54,7 @@ describe('OmpSetup', () => {
         model_name: 'gpt-5.6-sol',
         provider: 'openai',
         auth_type: 'subscription',
-        reasoning_efforts: ['low', 'medium', 'high', 'xhigh'],
+        reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
       },
     ] as AvailableModel[];
 
@@ -67,7 +67,8 @@ describe('OmpSetup', () => {
 
     expect(yaml).toContain('api: openai-responses');
     expect(yaml).toContain('"openai-subscription/gpt-5.6-sol":');
-    expect(yaml).toContain('efforts: ["low","medium","high","xhigh"]');
+    expect(yaml).toContain('efforts: ["low","medium","high","xhigh","max"]');
+    expect(yaml).not.toContain('efforts: ["none"');
     expect(yaml).toContain('supportsReasoningEffort: true');
     expect(yaml).not.toContain('gpt-5.6-sol-high:');
   });

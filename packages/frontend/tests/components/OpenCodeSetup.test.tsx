@@ -26,6 +26,7 @@ describe('OpenCodeSetup', () => {
     expect(container.textContent).toContain('"apiKey": "mnfst_YOUR_KEY"');
     expect(container.textContent).not.toContain('"apiKey": "mnfst_live..."');
     expect(container.textContent).toContain('"model": "manifest/auto"');
+    expect(container.textContent).toContain('"npm": "@ai-sdk/openai-compatible"');
     expect(screen.queryByLabelText('Reveal API key')).toBeNull();
 
     const copyConfig = container.querySelector(
@@ -130,6 +131,7 @@ describe('OpenCodeSetup', () => {
     expect(models['openai-subscription/gpt-5.5']).toMatchObject({
       id: 'openai-subscription/gpt-5.5',
       name: 'GPT 5.5',
+      reasoning: true,
       variants: {
         high: { reasoningEffort: 'high', reasoningSummary: 'auto' },
         low: { reasoningEffort: 'low', reasoningSummary: 'auto' },
@@ -155,7 +157,7 @@ describe('OpenCodeSetup', () => {
         model_name: 'gpt-5.6-sol',
         provider: 'openai',
         auth_type: 'subscription',
-        reasoning_efforts: ['low', 'medium', 'high', 'xhigh'],
+        reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
       },
     ] as AvailableModel[];
 
@@ -165,11 +167,13 @@ describe('OpenCodeSetup', () => {
 
     expect(config.provider.manifest.models['openai-subscription/gpt-5.6-sol']).toMatchObject({
       id: 'openai-subscription/gpt-5.6-sol',
+      reasoning: true,
       variants: {
         low: { reasoningEffort: 'low', reasoningSummary: 'auto' },
         medium: { reasoningEffort: 'medium', reasoningSummary: 'auto' },
         high: { reasoningEffort: 'high', reasoningSummary: 'auto' },
         xhigh: { reasoningEffort: 'xhigh', reasoningSummary: 'auto' },
+        max: { reasoningEffort: 'max', reasoningSummary: 'auto' },
       },
     });
   });

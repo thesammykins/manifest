@@ -26,6 +26,9 @@ export function getOpenCodeConfig(
       $schema: 'https://opencode.ai/config.json',
       provider: {
         manifest: {
+          // OpenCode's custom Responses provider currently drops reasoningEffort
+          // options. Its compatible provider forwards the native variant as
+          // reasoning_effort, which Manifest maps onto the selected route.
           npm: '@ai-sdk/openai-compatible',
           name: 'Manifest',
           options: {
@@ -49,6 +52,7 @@ function openCodeModels(
   const entries = exposedSetupModels(modelAliases, availableModels).map((model) => {
     const entry: Record<string, unknown> = { id: model.id, name: model.name };
     if (model.reasoningEfforts?.length) {
+      entry.reasoning = true;
       entry.variants = Object.fromEntries(
         model.reasoningEfforts.map((effort) => [
           effort,
@@ -91,7 +95,10 @@ function openCodeModels(
       collapsed.add(candidate.model_id);
     }
 
-    if (Object.keys(variants).length > 0) baseEntry.variants = variants;
+    if (Object.keys(variants).length > 0) {
+      baseEntry.reasoning = true;
+      baseEntry.variants = variants;
+    }
   }
 
   for (const id of collapsed) delete models[id];

@@ -108,7 +108,7 @@ describe('SetupStepAddProvider', () => {
     const agentTabs = container.querySelectorAll('.panel__tab');
     fireEvent.click(agentTabs[8]); // Pi
     expect(container.textContent).toContain('~/.pi/agent/models.json');
-    expect(container.textContent).toContain('"api": "openai-completions"');
+    expect(container.textContent).toContain('"api": "openai-responses"');
   });
 
   it('shows Warp setup when Warp tab clicked', () => {
@@ -423,7 +423,7 @@ describe('SetupStepAddProvider', () => {
     it('shows PiSetup directly when platform is pi', () => {
       const { container } = render(() => <SetupStepAddProvider {...defaultProps} platform="pi" />);
       expect(container.textContent).toContain('~/.pi/agent/models.json');
-      expect(container.textContent).toContain('"api": "openai-completions"');
+      expect(container.textContent).toContain('"api": "openai-responses"');
       expect(container.querySelector('[aria-label="Setup method"]')).toBeNull();
     });
 
