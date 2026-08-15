@@ -57,6 +57,9 @@ export interface MessageDetailResponse {
     cache_read_tokens: number;
     cache_creation_tokens: number;
     cost_usd: number | null;
+    api_equivalent_cost_usd: number | null;
+    api_pricing_source: string | null;
+    api_pricing_model_id: string | null;
     duration_ms: number | null;
     trace_id: string | null;
     routing_tier: string | null;
@@ -68,6 +71,7 @@ export interface MessageDetailResponse {
      *  keys configured for (provider, auth_type). `null` (or `'Default'` in
      *  the legacy single-key case) means the priority-0 key was used. */
     provider_key_label: string | null;
+    tenant_provider_id: string | null;
     skill_name: string | null;
     fallback_from_model: string | null;
     fallback_index: number | null;
@@ -111,6 +115,11 @@ export interface MessageDetailResponse {
       error_http_status: number | null;
       duration_ms: number | null;
       cost_usd: number | null;
+      api_equivalent_cost_usd: number | null;
+      api_pricing_source: string | null;
+      api_pricing_model_id: string | null;
+      provider_key_label: string | null;
+      tenant_provider_id: string | null;
       input_tokens: number;
       output_tokens: number;
       fallback_from_model: string | null;

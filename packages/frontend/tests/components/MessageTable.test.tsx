@@ -263,6 +263,25 @@ describe('MessageTable', () => {
       ).not.toBeNull();
     });
 
+    it('shows the API-equivalent savings on subscription events', () => {
+      const { container } = render(() => (
+        <MessageTable
+          items={[
+            makeRow({
+              auth_type: 'subscription',
+              cost: 0,
+              api_equivalent_cost_usd: 0.0075,
+            }),
+          ]}
+          columns={['cost']}
+          agentName="agent-1"
+        />
+      ));
+
+      expect(container.textContent).toContain('Saved $0.0075');
+      expect(container.querySelector('[title*="Excludes the recurring subscription fee"]')).not.toBeNull();
+    });
+
     it('renders em dash for null cost', () => {
       const { container } = render(() => (
         <MessageTable

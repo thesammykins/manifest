@@ -345,6 +345,9 @@ export const MESSAGE_ROW_SELECT_ALIASES = [
   'status',
   'total_tokens',
   'cost',
+  'api_equivalent_cost_usd',
+  'api_pricing_source',
+  'api_pricing_model_id',
   'routing_tier',
   'routing_reason',
   'specificity_category',
@@ -361,6 +364,7 @@ export const MESSAGE_ROW_SELECT_ALIASES = [
   'header_tier_name',
   'header_tier_color',
   'provider_key_label',
+  'tenant_provider_id',
   'custom_provider_name',
   'autofix_applied',
   'autofix_role',
@@ -383,6 +387,9 @@ export function selectMessageRowColumns<T extends ObjectLiteral>(
     .addSelect('at.status', 'status')
     .addSelect('at.input_tokens + at.output_tokens', 'total_tokens')
     .addSelect(costExpr, 'cost')
+    .addSelect('CAST(at.api_equivalent_cost_usd AS FLOAT)', 'api_equivalent_cost_usd')
+    .addSelect('at.api_pricing_source', 'api_pricing_source')
+    .addSelect('at.api_pricing_model_id', 'api_pricing_model_id')
     .addSelect('at.routing_tier', 'routing_tier')
     .addSelect('at.routing_reason', 'routing_reason')
     .addSelect('at.specificity_category', 'specificity_category')
@@ -399,6 +406,7 @@ export function selectMessageRowColumns<T extends ObjectLiteral>(
     .addSelect('at.header_tier_name', 'header_tier_name')
     .addSelect('at.header_tier_color', 'header_tier_color')
     .addSelect('at.provider_key_label', 'provider_key_label')
+    .addSelect('at.tenant_provider_id', 'tenant_provider_id')
     .addSelect('cp.name', 'custom_provider_name')
     .addSelect('at.autofix_applied', 'autofix_applied')
     .addSelect('at.autofix_role', 'autofix_role');

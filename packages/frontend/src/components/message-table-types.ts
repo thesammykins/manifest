@@ -16,6 +16,9 @@ export interface MessageRow {
   output_tokens: number | null;
   total_tokens: number | null;
   cost: number | null;
+  api_equivalent_cost_usd?: number | null;
+  api_pricing_source?: string | null;
+  api_pricing_model_id?: string | null;
   status: string;
   error_message?: string | null;
   error_http_status?: number | null;
@@ -26,6 +29,8 @@ export interface MessageRow {
   /** WHAT kind of failure it was (rate_limit, auth, billing, no_provider_key, timeout, …). */
   error_class?: string | null;
   auth_type?: string | null;
+  tenant_provider_id?: string | null;
+  provider_key_label?: string | null;
   fallback_from_model?: string | null;
   fallback_index?: number | null;
   cache_read_tokens?: number | null;

@@ -1,4 +1,4 @@
-import { computeTokenCost } from './cost-calculator';
+import { computeTokenCost, computeUsageCostComparison } from './cost-calculator';
 import { PricingEntry } from '../../model-prices/model-pricing-cache.service';
 
 describe('computeTokenCost', () => {
@@ -365,5 +365,82 @@ describe('computeTokenCost', () => {
         isSubscription: true,
       }),
     ).toBe(0);
+  });
+});
+
+describe('computeUsageCostComparison', () => {
+  const pricing: PricingEntry = {
+    model_name: 'claude-sonnet-4-6',
+    provider: 'Anthropic',
+    input_price_per_token: 3 / 1_000_000,
+    output_price_per_token: 15 / 1_000_000,
+    cache_read_price_per_token: 0.3 / 1_000_000,
+    cache_write_price_per_token: 3.75 / 1_000_000,
+    display_name: 'Claude Sonnet 4.6',
+    source: 'models.dev',
+  };
+
+  it('snapshots flat-fee subscription savings at the matched API rate', () => {
+    const result = computeUsageCostComparison({
+      inputTokens: 1_000,
+      outputTokens: 100,
+      cacheReadTokens: 400,
+      cacheCreationTokens: 100,
+      model: 'claude-sonnet-4-6',
+      pricing,
+      isSubscription: true,
+    });
+
+    expect(result.actualCostUsd).toBe(0);
+    expect(result.apiEquivalentCostUsd).toBeCloseTo(0.00012 + 0.000375 + 0.0015 + 0.0015, 10);
+    expect(result.estimatedApiSavingsUsd).toBe(result.apiEquivalentCostUsd);
+    expect(result.apiPricingSource).toBe('models.dev');
+    expect(result.apiPricingModelId).toBe('claude-sonnet-4-6');
+  });
+
+  it('subtracts a metered subscription charge from the API equivalent', () => {
+    const result = computeUsageCostComparison({
+      inputTokens: 1_000,
+      outputTokens: 100,
+      model: 'claude-sonnet-4-6',
+      pricing,
+      isSubscription: true,
+      reportedCostUsd: 0.001,
+    });
+
+    expect(result.actualCostUsd).toBe(0.001);
+    expect(result.apiEquivalentCostUsd).toBeCloseTo(0.0045, 10);
+    expect(result.estimatedApiSavingsUsd).toBeCloseTo(0.0035, 10);
+  });
+
+  it('keeps the API comparison unknown when exact pricing is unavailable', () => {
+    expect(
+      computeUsageCostComparison({
+        inputTokens: 1_000,
+        outputTokens: 100,
+        model: 'subscription-only-model',
+        pricing: undefined,
+        isSubscription: true,
+      }),
+    ).toEqual({
+      actualCostUsd: 0,
+      apiEquivalentCostUsd: null,
+      estimatedApiSavingsUsd: null,
+      apiPricingSource: null,
+      apiPricingModelId: null,
+    });
+  });
+
+  it('does not invent a subscription comparison for API-key usage', () => {
+    const result = computeUsageCostComparison({
+      inputTokens: 1_000,
+      outputTokens: 100,
+      model: 'claude-sonnet-4-6',
+      pricing,
+    });
+
+    expect(result.actualCostUsd).toBeCloseTo(0.0045, 10);
+    expect(result.apiEquivalentCostUsd).toBeNull();
+    expect(result.estimatedApiSavingsUsd).toBeNull();
   });
 });

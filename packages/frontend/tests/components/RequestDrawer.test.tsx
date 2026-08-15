@@ -93,6 +93,11 @@ const fullMessage = {
       provider: 'anthropic',
       model: 'claude',
       auth_type: 'subscription',
+      provider_key_label: 'Claude Max',
+      tenant_provider_id: 'connection-claude-max',
+      cost_usd: 0,
+      api_equivalent_cost_usd: 0.0045,
+      api_pricing_source: 'models.dev',
     },
     {
       id: 'attempt-4',
@@ -142,6 +147,12 @@ describe('RequestDrawer', () => {
     expect(screen.getByText('Rate limited')).toBeDefined();
     fireEvent.click(attempts[2]!);
     expect(screen.getAllByText('Success').length).toBeGreaterThan(0);
+    expect(screen.getByText('Estimated API savings')).toBeDefined();
+    expect(screen.getAllByText('$0.004500')).toHaveLength(2);
+    const connectionLink = screen.getByText('Claude Max') as HTMLAnchorElement;
+    expect(connectionLink.getAttribute('href')).toBe(
+      '/providers/connections/connection-claude-max',
+    );
     fireEvent.click(attempts[3]!);
     expect(screen.getAllByText('Failed').length).toBeGreaterThan(0);
 

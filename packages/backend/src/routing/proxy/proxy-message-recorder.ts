@@ -19,7 +19,7 @@ import { IngestEventBusService } from '../../common/services/ingest-event-bus.se
 import { IngestionContext } from '../../otlp/interfaces/ingestion-context.interface';
 import { FailedFallback } from './proxy-fallback.service';
 import { StreamUsage } from './stream-writer';
-import { computeTokenCost } from '../../common/utils/cost-calculator';
+import { computeUsageCostComparison } from '../../common/utils/cost-calculator';
 import { scrubSecrets } from '../../common/utils/secret-scrub';
 import { CallerAttribution } from './caller-classifier';
 import type { ProviderAttemptRef, ProviderAttemptStart, ProxyApiMode } from './proxy-types';
@@ -1069,7 +1069,7 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
     const inputTokens = usage?.prompt_tokens ?? 0;
     const outputTokens = usage?.completion_tokens ?? 0;
 
-    const costUsd = computeTokenCost({
+    const costComparison = computeUsageCostComparison({
       inputTokens,
       outputTokens,
       cacheReadTokens: usage?.cache_read_tokens ?? 0,
@@ -1107,7 +1107,10 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       output_tokens: outputTokens,
       cache_read_tokens: usage?.cache_read_tokens ?? 0,
       cache_creation_tokens: usage?.cache_creation_tokens ?? 0,
-      cost_usd: costUsd,
+      cost_usd: costComparison.actualCostUsd,
+      api_equivalent_cost_usd: costComparison.apiEquivalentCostUsd,
+      api_pricing_source: costComparison.apiPricingSource ?? null,
+      api_pricing_model_id: costComparison.apiPricingModelId,
       auth_type: authType ?? null,
       fallback_from_model: canonicalFallbackFrom.model,
       fallback_index: fallbackIndex ?? null,
@@ -1156,7 +1159,7 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
     } = opts ?? {};
     const requestId = providedRequestId ?? uuid();
 
-    const costUsd = computeTokenCost({
+    const costComparison = computeUsageCostComparison({
       inputTokens: usage.prompt_tokens,
       outputTokens: usage.completion_tokens,
       cacheReadTokens: usage.cache_read_tokens ?? 0,
@@ -1205,7 +1208,10 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       output_tokens: usage.completion_tokens,
       cache_read_tokens: usage.cache_read_tokens ?? 0,
       cache_creation_tokens: usage.cache_creation_tokens ?? 0,
-      cost_usd: costUsd,
+      cost_usd: costComparison.actualCostUsd,
+      api_equivalent_cost_usd: costComparison.apiEquivalentCostUsd,
+      api_pricing_source: costComparison.apiPricingSource ?? null,
+      api_pricing_model_id: costComparison.apiPricingModelId,
       auth_type: authType ?? null,
       specificity_category: specificityCategory ?? null,
       provider_key_label: providerKeyLabel ?? null,

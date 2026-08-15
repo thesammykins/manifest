@@ -302,9 +302,40 @@ export default function MessageDetails(props: MessageDetailsProps): JSX.Element 
                   <MetaField label="ID" value={m.id} />
                   <MetaField label="Provider" value={provider} />
                   <MetaField label="Auth" value={m.auth_type} />
-                  <MetaField label="API Key" value={m.provider_key_label ?? 'Default'} />
+                  <span class="msg-detail__meta-item">
+                    <span class="msg-detail__meta-label">Connection</span>
+                    <Show
+                      when={m.tenant_provider_id}
+                      fallback={<span>{m.provider_key_label ?? 'Default'}</span>}
+                    >
+                      <a href={`/providers/connections/${m.tenant_provider_id}`}>
+                        {m.provider_key_label ?? 'Default'}
+                      </a>
+                    </Show>
+                  </span>
                   <MetaField label="Model" value={m.model ? getModelDisplayName(m.model) : null} />
                   <MetaField label="Model ID" value={m.model} />
+                  <MetaField
+                    label="Actual cost"
+                    value={m.cost_usd == null ? null : `$${Number(m.cost_usd).toFixed(6)}`}
+                  />
+                  <MetaField
+                    label="API equivalent"
+                    value={
+                      m.api_equivalent_cost_usd == null
+                        ? null
+                        : `$${Number(m.api_equivalent_cost_usd).toFixed(6)}`
+                    }
+                  />
+                  <MetaField
+                    label="Estimated API savings"
+                    value={
+                      m.api_equivalent_cost_usd == null
+                        ? null
+                        : `$${Math.max(Number(m.api_equivalent_cost_usd) - Number(m.cost_usd ?? 0), 0).toFixed(6)}`
+                    }
+                  />
+                  <MetaField label="API price source" value={m.api_pricing_source} />
                   <MetaField label="Trace" value={m.trace_id?.slice(0, 16)} />
                   <MetaField
                     label="Routing"
@@ -756,6 +787,16 @@ export default function MessageDetails(props: MessageDetailsProps): JSX.Element 
                               {attempt.cost_usd == null
                                 ? '—'
                                 : `$${Number(attempt.cost_usd).toFixed(6)}`}
+                              <Show when={attempt.api_equivalent_cost_usd != null}>
+                                <div style="color: hsl(var(--success)); font-size: var(--font-size-xs);">
+                                  Saved $
+                                  {Math.max(
+                                    Number(attempt.api_equivalent_cost_usd) -
+                                      Number(attempt.cost_usd ?? 0),
+                                    0,
+                                  ).toFixed(6)}
+                                </div>
+                              </Show>
                             </td>
                           </tr>
                         )}

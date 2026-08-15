@@ -457,6 +457,7 @@ export class MessagesQueryService {
     const picked = (column: string): string =>
       `(ARRAY_AGG(${column} ORDER BY at.attempt_number DESC NULLS LAST, ${rank} DESC, at.timestamp DESC, at.id DESC) FILTER (WHERE at.id IS NOT NULL))[1]`;
     const safeCost = sqlSanitizeCost('at.cost_usd');
+    const safeApiEquivalentCost = sqlSanitizeCost('at.api_equivalent_cost_usd');
     qb.leftJoin(CustomProvider, 'cp', CUSTOM_PROVIDER_JOIN_CONDITION)
       .select('r.id', 'id')
       .addSelect('r.timestamp', 'timestamp')
@@ -468,6 +469,9 @@ export class MessagesQueryService {
       .addSelect('COALESCE(SUM(at.output_tokens), 0)', 'output_tokens')
       .addSelect('COALESCE(SUM(at.input_tokens + at.output_tokens), 0)', 'total_tokens')
       .addSelect(`COALESCE(SUM(${safeCost}), 0)`, 'cost')
+      .addSelect(`SUM(${safeApiEquivalentCost})::float`, 'api_equivalent_cost_usd')
+      .addSelect(picked('at.api_pricing_source'), 'api_pricing_source')
+      .addSelect(picked('at.api_pricing_model_id'), 'api_pricing_model_id')
       .addSelect('r.status', 'status')
       .addSelect('r.api_mode', 'api_mode')
       .addSelect('r.error_message', 'error_message')
@@ -489,6 +493,7 @@ export class MessagesQueryService {
       .addSelect(picked('at.header_tier_name'), 'header_tier_name')
       .addSelect(picked('at.header_tier_color'), 'header_tier_color')
       .addSelect(picked('at.provider_key_label'), 'provider_key_label')
+      .addSelect(picked('at.tenant_provider_id'), 'tenant_provider_id')
       .addSelect(picked('cp.name'), 'custom_provider_name')
       .addSelect('COALESCE(BOOL_OR(at.autofix_applied), false)', 'autofix_applied')
       .addSelect(

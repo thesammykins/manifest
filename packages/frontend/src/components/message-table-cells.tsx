@@ -141,27 +141,45 @@ export function CostCell(item: MessageRow): JSX.Element {
   // "Included in subscription" treatment.
   const isPerRequestSubscription =
     item.auth_type === 'subscription' && item.cost != null && item.cost > 0;
+  const apiEquivalent =
+    item.auth_type === 'subscription' && item.api_equivalent_cost_usd != null
+      ? Number(item.api_equivalent_cost_usd)
+      : null;
+  const actual = Number(item.cost ?? 0);
+  const estimatedSavings = apiEquivalent == null ? null : Math.max(apiEquivalent - actual, 0);
+  const formatComparisonCost = (value: number): string =>
+    value > 0 && value < 0.01 ? `$${value.toFixed(4)}` : (formatCost(value) ?? '$0.00');
   return (
-    <td style={MONO}>
-      <Show
-        when={item.auth_type === 'subscription' && !isPerRequestSubscription}
-        fallback={
-          <span
-            title={
-              isPerRequestSubscription
-                ? `Per-request subscription cost: $${Number(item.cost!).toFixed(6)}`
-                : item.cost != null && Number(item.cost) > 0 && Number(item.cost) < 0.01
-                  ? `$${Number(item.cost).toFixed(6)}`
-                  : undefined
-            }
-          >
-            {item.cost != null ? (formatCost(item.cost) ?? '\u2014') : '\u2014'}
+    <td style={`${MONO} white-space: nowrap;`}>
+      <div>
+        <Show
+          when={item.auth_type === 'subscription' && !isPerRequestSubscription}
+          fallback={
+            <span
+              title={
+                isPerRequestSubscription
+                  ? `Per-request subscription cost: $${Number(item.cost!).toFixed(6)}`
+                  : item.cost != null && Number(item.cost) > 0 && Number(item.cost) < 0.01
+                    ? `$${Number(item.cost).toFixed(6)}`
+                    : undefined
+              }
+            >
+              {item.cost != null ? (formatCost(item.cost) ?? '\u2014') : '\u2014'}
+            </span>
+          }
+        >
+          <span style="color: hsl(var(--muted-foreground));" title="Included in subscription">
+            $0.00
           </span>
-        }
-      >
-        <span style="color: hsl(var(--muted-foreground));" title="Included in subscription">
-          $0.00
-        </span>
+        </Show>
+      </div>
+      <Show when={estimatedSavings != null}>
+        <div
+          style="font-size: var(--font-size-xs); color: hsl(var(--success));"
+          title={`Estimated API equivalent: $${apiEquivalent!.toFixed(6)}. Excludes the recurring subscription fee.`}
+        >
+          Saved {formatComparisonCost(estimatedSavings!)}
+        </div>
       </Show>
     </td>
   );

@@ -55,6 +55,11 @@ interface Attempt {
   description?: string;
   duration_ms?: number;
   cost?: number;
+  api_equivalent_cost_usd?: number;
+  api_pricing_source?: string;
+  api_pricing_model_id?: string;
+  provider_key_label?: string;
+  tenant_provider_id?: string;
   input_tokens?: number;
   output_tokens?: number;
   fallback_from_model?: string;
@@ -155,6 +160,12 @@ function buildAttempts(msg: any): Attempt[] {
       description: att.description ?? msg.description,
       duration_ms: att.duration_ms ?? undefined,
       cost: att.cost_usd != null ? Number(att.cost_usd) : undefined,
+      api_equivalent_cost_usd:
+        att.api_equivalent_cost_usd != null ? Number(att.api_equivalent_cost_usd) : undefined,
+      api_pricing_source: att.api_pricing_source ?? undefined,
+      api_pricing_model_id: att.api_pricing_model_id ?? undefined,
+      provider_key_label: att.provider_key_label ?? msg.provider_key_label ?? undefined,
+      tenant_provider_id: att.tenant_provider_id ?? msg.tenant_provider_id ?? undefined,
       input_tokens: att.input_tokens ?? undefined,
       fallback_from_model: att.fallback_from_model ?? undefined,
       fallback_index: att.fallback_index ?? undefined,
@@ -197,6 +208,12 @@ function buildAttempts(msg: any): Attempt[] {
       description: msg.description,
       duration_ms: msg.duration_ms,
       cost: msg.cost,
+      api_equivalent_cost_usd:
+        msg.api_equivalent_cost_usd != null ? Number(msg.api_equivalent_cost_usd) : undefined,
+      api_pricing_source: msg.api_pricing_source ?? undefined,
+      api_pricing_model_id: msg.api_pricing_model_id ?? undefined,
+      provider_key_label: msg.provider_key_label ?? undefined,
+      tenant_provider_id: msg.tenant_provider_id ?? undefined,
       input_tokens: msg.input_tokens,
       fallback_from_model: msg.fallback_from_model ?? undefined,
       fallback_index: msg.fallback_index ?? undefined,
@@ -498,6 +515,23 @@ const RequestDrawer: Component<RequestDrawerProps> = (props) => {
                                     <span>{att().auth_type}</span>
                                   </div>
                                 </Show>
+                                <Show when={att().provider_key_label || att().tenant_provider_id}>
+                                  <div class="drawer-kv">
+                                    <span class="drawer-kv__key">Connection</span>
+                                    <Show
+                                      when={att().tenant_provider_id}
+                                      fallback={
+                                        <span>{att().provider_key_label ?? 'Default'}</span>
+                                      }
+                                    >
+                                      <a
+                                        href={`/providers/connections/${att().tenant_provider_id}`}
+                                      >
+                                        {att().provider_key_label ?? 'Default'}
+                                      </a>
+                                    </Show>
+                                  </div>
+                                </Show>
                                 <div class="drawer-kv">
                                   <span class="drawer-kv__key">Model</span>
                                   <span>{att().model ?? '-'}</span>
@@ -546,8 +580,34 @@ const RequestDrawer: Component<RequestDrawerProps> = (props) => {
                                 </Show>
                                 <Show when={att().cost != null}>
                                   <div class="drawer-kv">
-                                    <span class="drawer-kv__key">Cost</span>
+                                    <span class="drawer-kv__key">Actual cost</span>
                                     <span>${att().cost?.toFixed(4)}</span>
+                                  </div>
+                                </Show>
+                                <Show when={att().api_equivalent_cost_usd != null}>
+                                  <div class="drawer-kv">
+                                    <span class="drawer-kv__key">API equivalent</span>
+                                    <span>${att().api_equivalent_cost_usd!.toFixed(6)}</span>
+                                  </div>
+                                  <div class="drawer-kv">
+                                    <span class="drawer-kv__key">Estimated API savings</span>
+                                    <span style="color: hsl(var(--success));">
+                                      $
+                                      {Math.max(
+                                        att().api_equivalent_cost_usd! - (att().cost ?? 0),
+                                        0,
+                                      ).toFixed(6)}
+                                    </span>
+                                  </div>
+                                  <Show when={att().api_pricing_source}>
+                                    <div class="drawer-kv">
+                                      <span class="drawer-kv__key">API price source</span>
+                                      <span>{att().api_pricing_source}</span>
+                                    </div>
+                                  </Show>
+                                  <div class="drawer-kv">
+                                    <span class="drawer-kv__key">Estimate scope</span>
+                                    <span>Excludes recurring subscription fee</span>
                                   </div>
                                 </Show>
                                 <div class="drawer-kv">

@@ -29,6 +29,19 @@ export interface CostInput {
   reportedCostUsd?: number | null;
 }
 
+export interface UsageCostComparison {
+  /** What the provider actually charged for this attempt. */
+  actualCostUsd: number | null;
+  /** What the same token usage would have cost at the matched API rate. */
+  apiEquivalentCostUsd: number | null;
+  /** API-equivalent cost minus actual cost, clamped at zero. */
+  estimatedApiSavingsUsd: number | null;
+  /** Pricing source snapshotted with the estimate for later explanation. */
+  apiPricingSource: PricingEntry['source'] | null;
+  /** Exact pricing-cache model entry that produced the estimate. */
+  apiPricingModelId: string | null;
+}
+
 /**
  * Computes the USD cost for a set of tokens given a pricing entry.
  *
@@ -87,4 +100,43 @@ export function computeTokenCost(input: CostInput): number | null {
     input.outputTokens * outputPrice;
 
   return cost < 0 ? null : cost;
+}
+
+/**
+ * Compute the actual charged cost and, for subscription usage, the API-rate
+ * counterfactual for the same model and tokens. This deliberately excludes the
+ * subscription's recurring plan fee: that fee is shared with usage outside
+ * Manifest and cannot be allocated truthfully to one provider attempt.
+ */
+export function computeUsageCostComparison(input: CostInput): UsageCostComparison {
+  const actualCostUsd = computeTokenCost(input);
+  if (!input.isSubscription) {
+    return {
+      actualCostUsd,
+      apiEquivalentCostUsd: null,
+      estimatedApiSavingsUsd: null,
+      apiPricingSource: null,
+      apiPricingModelId: null,
+    };
+  }
+
+  const apiEquivalentCostUsd = computeTokenCost({
+    ...input,
+    isSubscription: false,
+    perRequestCostUsd: null,
+    reportedCostUsd: null,
+  });
+  const estimatedApiSavingsUsd =
+    actualCostUsd == null || apiEquivalentCostUsd == null
+      ? null
+      : Math.max(apiEquivalentCostUsd - actualCostUsd, 0);
+
+  return {
+    actualCostUsd,
+    apiEquivalentCostUsd,
+    estimatedApiSavingsUsd,
+    apiPricingSource: apiEquivalentCostUsd == null ? null : (input.pricing?.source ?? null),
+    apiPricingModelId:
+      apiEquivalentCostUsd == null ? null : (input.pricing?.model_name ?? input.model ?? null),
+  };
 }

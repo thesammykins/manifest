@@ -31,6 +31,9 @@ export interface MessageDetailResponse {
     cache_read_tokens: number;
     cache_creation_tokens: number;
     cost_usd: number | null;
+    api_equivalent_cost_usd: number | null;
+    api_pricing_source: string | null;
+    api_pricing_model_id: string | null;
     duration_ms: number | null;
     trace_id: string | null;
     routing_tier: string | null;
@@ -39,6 +42,7 @@ export interface MessageDetailResponse {
     specificity_miscategorized: boolean;
     auth_type: string | null;
     provider_key_label: string | null;
+    tenant_provider_id: string | null;
     skill_name: string | null;
     fallback_from_model: string | null;
     fallback_index: number | null;
@@ -77,6 +81,11 @@ export interface MessageDetailResponse {
       error_http_status: number | null;
       duration_ms: number | null;
       cost_usd: number | null;
+      api_equivalent_cost_usd: number | null;
+      api_pricing_source: string | null;
+      api_pricing_model_id: string | null;
+      provider_key_label: string | null;
+      tenant_provider_id: string | null;
       input_tokens: number;
       output_tokens: number;
       fallback_from_model: string | null;
@@ -177,6 +186,17 @@ export class MessageDetailsService {
     const cost = request
       ? attempts.reduce((sum, attempt) => sum + Number(attempt.cost_usd ?? 0), 0)
       : message!.cost_usd;
+    const apiEquivalentAttempts = attempts.filter(
+      (attempt) => attempt.api_equivalent_cost_usd != null,
+    );
+    const apiEquivalentCost = request
+      ? apiEquivalentAttempts.length > 0
+        ? apiEquivalentAttempts.reduce(
+            (sum, attempt) => sum + Number(attempt.api_equivalent_cost_usd),
+            0,
+          )
+        : null
+      : message!.api_equivalent_cost_usd;
     const duration = request
       ? attempts.length > 0
         ? attempts.reduce((sum, attempt) => sum + (attempt.duration_ms ?? 0), 0)
@@ -192,7 +212,7 @@ export class MessageDetailsService {
         status: request?.status ?? message!.status,
         autofix_status: request?.autofix_status ?? null,
         error_message: request?.error_message ?? message?.error_message ?? null,
-        error_code: request ? (request.error_code ?? null) : message!.error_code,
+        error_code: request ? (request.error_code ?? null) : (message!.error_code ?? null),
         error_http_status: request?.error_http_status ?? message?.error_http_status ?? null,
         error_origin: request?.error_origin ?? message?.error_origin ?? null,
         error_class: request?.error_class ?? message?.error_class ?? null,
@@ -204,6 +224,9 @@ export class MessageDetailsService {
         cache_read_tokens: cacheReadTokens,
         cache_creation_tokens: cacheCreationTokens,
         cost_usd: cost,
+        api_equivalent_cost_usd: apiEquivalentCost ?? null,
+        api_pricing_source: message?.api_pricing_source ?? null,
+        api_pricing_model_id: message?.api_pricing_model_id ?? null,
         duration_ms: duration,
         trace_id: request?.trace_id ?? message?.trace_id ?? null,
         routing_tier: message?.routing_tier ?? null,
@@ -212,6 +235,7 @@ export class MessageDetailsService {
         specificity_miscategorized: message?.specificity_miscategorized ?? false,
         auth_type: message?.auth_type ?? null,
         provider_key_label: message?.provider_key_label ?? null,
+        tenant_provider_id: message?.tenant_provider_id ?? null,
         skill_name: message?.skill_name ?? null,
         fallback_from_model: message?.fallback_from_model ?? null,
         fallback_index: message?.fallback_index ?? null,
@@ -257,6 +281,11 @@ export class MessageDetailsService {
                 error_http_status: attempt.error_http_status,
                 duration_ms: attempt.duration_ms,
                 cost_usd: attempt.cost_usd,
+                api_equivalent_cost_usd: attempt.api_equivalent_cost_usd,
+                api_pricing_source: attempt.api_pricing_source,
+                api_pricing_model_id: attempt.api_pricing_model_id,
+                provider_key_label: attempt.provider_key_label,
+                tenant_provider_id: attempt.tenant_provider_id,
                 input_tokens: attempt.input_tokens,
                 output_tokens: attempt.output_tokens,
                 fallback_from_model: attempt.fallback_from_model,

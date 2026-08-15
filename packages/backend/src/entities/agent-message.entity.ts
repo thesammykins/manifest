@@ -79,6 +79,16 @@ export class AgentMessage {
   @Column('decimal', { precision: 10, scale: 6, nullable: true })
   cost_usd!: number | null;
 
+  /** Token-priced counterfactual for subscription usage, snapshotted at ingest time. */
+  @Column('decimal', { precision: 10, scale: 6, nullable: true })
+  api_equivalent_cost_usd!: number | null;
+
+  @Column('varchar', { nullable: true })
+  api_pricing_source!: string | null;
+
+  @Column('varchar', { nullable: true })
+  api_pricing_model_id!: string | null;
+
   @Column('varchar', { default: 'pending' })
   status!: string;
 

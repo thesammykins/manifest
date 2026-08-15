@@ -384,6 +384,7 @@ describe('ProxyMessageRecorder', () => {
         input_price_per_token: 0.0000025,
         output_price_per_token: 0.00001,
         display_name: 'GPT-4o',
+        source: 'models.dev',
       });
       await recorder.recordFallbackSuccess(ctx, 'gpt-4o', 'standard', {
         authType: 'api_key',
@@ -425,13 +426,19 @@ describe('ProxyMessageRecorder', () => {
         input_price_per_token: 0.0000025,
         output_price_per_token: 0.00001,
         display_name: 'GPT-4o',
+        source: 'models.dev',
       });
       await recorder.recordFallbackSuccess(ctx, 'gpt-4o', 'standard', {
         authType: 'subscription',
         usage: { prompt_tokens: 1000, completion_tokens: 500 },
       });
       const inserted = insertMock.mock.calls[0][0];
-      expect(inserted.cost_usd).toBe(0);
+      expect(inserted).toMatchObject({
+        cost_usd: 0,
+        api_equivalent_cost_usd: 0.0075,
+        api_pricing_source: 'models.dev',
+        api_pricing_model_id: 'gpt-4o',
+      });
     });
 
     it('uses provider-reported cost for subscription fallback success', async () => {
@@ -1492,6 +1499,41 @@ describe('ProxyMessageRecorder', () => {
         output_tokens: 1,
         cost_usd: 0.00005,
       });
+    });
+
+    it('records the API-equivalent snapshot for a flat-fee subscription success', async () => {
+      getByModelMock.mockReturnValue({
+        model_name: 'claude-sonnet-4-6',
+        provider: 'Anthropic',
+        input_price_per_token: 3 / 1_000_000,
+        output_price_per_token: 15 / 1_000_000,
+        display_name: 'Claude Sonnet 4.6',
+        source: 'models.dev',
+      });
+
+      await recorder.recordSuccessMessage(
+        ctx,
+        'claude-sonnet-4-6',
+        'standard',
+        'scored',
+        { prompt_tokens: 1_000, completion_tokens: 100 },
+        {
+          provider: 'anthropic',
+          authType: 'subscription',
+          tenantProviderId: 'subscription-connection',
+          providerKeyLabel: 'Claude Max',
+        },
+      );
+
+      const inserted = insertMock.mock.calls[0][0];
+      expect(inserted).toMatchObject({
+        tenant_provider_id: 'subscription-connection',
+        provider_key_label: 'Claude Max',
+        cost_usd: 0,
+        api_pricing_source: 'models.dev',
+        api_pricing_model_id: 'claude-sonnet-4-6',
+      });
+      expect(inserted.api_equivalent_cost_usd).toBeCloseTo(0.0045, 10);
     });
 
     it('records message even when tokens are zero', async () => {
