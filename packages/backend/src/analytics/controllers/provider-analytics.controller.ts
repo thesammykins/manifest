@@ -401,6 +401,7 @@ export class ProviderAnalyticsController {
         provider: conn.provider,
         auth_type: conn.auth_type,
         label: conn.label,
+        subscription_plan: conn.subscription_plan,
         cached_model_count: Array.isArray(conn.cached_models) ? conn.cached_models.length : 0,
         key_prefix: conn.key_prefix,
         connected_at: conn.connected_at,

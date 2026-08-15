@@ -1111,6 +1111,8 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       api_equivalent_cost_usd: costComparison.apiEquivalentCostUsd,
       api_pricing_source: costComparison.apiPricingSource ?? null,
       api_pricing_model_id: costComparison.apiPricingModelId,
+      api_pricing_basis:
+        costComparison.apiEquivalentCostUsd == null ? null : ('event_snapshot' as const),
       auth_type: authType ?? null,
       fallback_from_model: canonicalFallbackFrom.model,
       fallback_index: fallbackIndex ?? null,
@@ -1212,6 +1214,8 @@ export class ProxyMessageRecorder implements OnModuleDestroy {
       api_equivalent_cost_usd: costComparison.apiEquivalentCostUsd,
       api_pricing_source: costComparison.apiPricingSource ?? null,
       api_pricing_model_id: costComparison.apiPricingModelId,
+      api_pricing_basis:
+        costComparison.apiEquivalentCostUsd == null ? null : ('event_snapshot' as const),
       auth_type: authType ?? null,
       specificity_category: specificityCategory ?? null,
       provider_key_label: providerKeyLabel ?? null,

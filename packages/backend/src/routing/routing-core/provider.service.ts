@@ -46,6 +46,7 @@ import { CodexAliasService } from './codex-alias.service';
 import { filterProvidersForDeployment } from '../../common/utils/provider-availability';
 import { getManagedFreeProviderConfig } from '../../common/constants/managed-free-providers';
 import { expandProviderNames } from '../../common/utils/provider-aliases';
+import { extractSubscriptionPlan } from '../../common/utils/subscription-plan';
 
 const MAX_KEYS_MANAGED_FREE_PROVIDER = 1;
 const MAX_LABEL_LENGTH = 50;
@@ -335,6 +336,7 @@ export class ProviderService {
           const encrypted = encrypt(raw, getEncryptionSecret());
           const keyPrefix = raw.substring(0, 8);
           const updatedAt = new Date().toISOString();
+          const subscriptionPlan = extractSubscriptionPlan(provider, raw) ?? row.subscription_plan;
           // Write inside a SAVEPOINT (nested transaction) so a transient save
           // failure rolls back only this statement, not the whole locked
           // transaction. A bare save on the outer tx would abort it, and the
@@ -342,16 +344,20 @@ export class ProviderService {
           // then fail every attempt with "current transaction is aborted",
           // silently discarding the already-rotated token (a brick).
           await manager.transaction(async (sub) => {
-            await sub
-              .getRepository(TenantProvider)
-              .update(
-                { id: row.id },
-                { api_key_encrypted: encrypted, key_prefix: keyPrefix, updated_at: updatedAt },
-              );
+            await sub.getRepository(TenantProvider).update(
+              { id: row.id },
+              {
+                api_key_encrypted: encrypted,
+                key_prefix: keyPrefix,
+                subscription_plan: subscriptionPlan,
+                updated_at: updatedAt,
+              },
+            );
           });
           // Keep the in-memory row consistent for any subsequent readFreshRaw.
           row.api_key_encrypted = encrypted;
           row.key_prefix = keyPrefix;
+          row.subscription_plan = subscriptionPlan;
           row.updated_at = updatedAt;
           didWrite = true;
           // Cache invalidation is deferred until AFTER commit (below).
@@ -415,6 +421,10 @@ export class ProviderService {
     );
     const apiKeyEncrypted = apiKey ? encrypt(apiKey, getEncryptionSecret()) : null;
     const keyPrefix = apiKey ? apiKey.substring(0, 8) : null;
+    const subscriptionPlan =
+      effectiveAuthType === 'subscription' && apiKey
+        ? extractSubscriptionPlan(provider, apiKey)
+        : null;
 
     if (existing) {
       // Captured BEFORE mutation: a disconnected row being reconnected must
@@ -424,6 +434,7 @@ export class ProviderService {
       if (apiKeyEncrypted !== null) {
         existing.api_key_encrypted = apiKeyEncrypted;
         existing.key_prefix = keyPrefix;
+        existing.subscription_plan = subscriptionPlan ?? existing.subscription_plan;
       }
       existing.region = resolvedRegion;
       existing.is_active = true;
@@ -444,6 +455,7 @@ export class ProviderService {
       priority: 0,
       api_key_encrypted: apiKeyEncrypted,
       key_prefix: keyPrefix,
+      subscription_plan: subscriptionPlan,
       region: resolvedRegion,
       is_active: true,
       connected_at: new Date().toISOString(),
@@ -507,6 +519,9 @@ export class ProviderService {
     );
     target.api_key_encrypted = encrypt(apiKey, getEncryptionSecret());
     target.key_prefix = apiKey.substring(0, 8);
+    target.subscription_plan =
+      (authType === 'subscription' ? extractSubscriptionPlan(target.provider, apiKey) : null) ??
+      target.subscription_plan;
     target.region = resolvedRegion;
     target.is_active = true;
     target.updated_at = new Date().toISOString();
@@ -545,6 +560,8 @@ export class ProviderService {
     );
     const apiKeyEncrypted = apiKey ? encrypt(apiKey, getEncryptionSecret()) : null;
     const keyPrefix = apiKey ? apiKey.substring(0, 8) : null;
+    const subscriptionPlan =
+      authType === 'subscription' && apiKey ? extractSubscriptionPlan(provider, apiKey) : null;
 
     if (existing) {
       // Captured BEFORE mutation — see the same dance in upsertProvider.
@@ -552,6 +569,7 @@ export class ProviderService {
       if (apiKeyEncrypted !== null) {
         existing.api_key_encrypted = apiKeyEncrypted;
         existing.key_prefix = keyPrefix;
+        existing.subscription_plan = subscriptionPlan ?? existing.subscription_plan;
       }
       existing.region = resolvedRegion;
       existing.is_active = true;
@@ -586,6 +604,7 @@ export class ProviderService {
         sameKey.region = resolvedRegion;
         sameKey.is_active = true;
         sameKey.updated_at = new Date().toISOString();
+        sameKey.subscription_plan = subscriptionPlan ?? sameKey.subscription_plan;
         await repo.save(sameKey);
         await this.fanOutIfReactivated(wasInactive, tenantId, sameKey.id, manager);
         await this.afterProviderChange(agentId, tenantId, sameKey.id, manager);
@@ -603,6 +622,7 @@ export class ProviderService {
       priority: this.nextPriority(existingRows),
       api_key_encrypted: apiKeyEncrypted,
       key_prefix: keyPrefix,
+      subscription_plan: subscriptionPlan,
       region: resolvedRegion,
       is_active: true,
       connected_at: new Date().toISOString(),

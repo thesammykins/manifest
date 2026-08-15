@@ -45,6 +45,7 @@ import { AddRequestApiMode1801720000000 } from './migrations/1801720000000-AddRe
 import { AddAutofixConsentToInstallMetadata1801900000000 } from './migrations/1801900000000-AddAutofixConsentToInstallMetadata';
 import { RedactRequestParamSecrets1802000000000 } from './migrations/1802000000000-RedactRequestParamSecrets';
 import { AddSubscriptionApiEquivalentCost1802100000000 } from './migrations/1802100000000-AddSubscriptionApiEquivalentCost';
+import { AddSubscriptionPricingMetadata1802200000000 } from './migrations/1802200000000-AddSubscriptionPricingMetadata';
 import { AddCredentialSelectionAndOAuthLabels1801700000000 } from './migrations/1801700000000-AddCredentialSelectionAndOAuthLabels';
 import { AddExposedModelRoutes1795200000000 } from './migrations/1795200000000-AddExposedModelRoutes';
 import { InitialSchema1771464895790 } from './migrations/1771464895790-InitialSchema';
@@ -332,4 +333,5 @@ export const migrations = [
   AddAutofixConsentToInstallMetadata1801900000000,
   RedactRequestParamSecrets1802000000000,
   AddSubscriptionApiEquivalentCost1802100000000,
+  AddSubscriptionPricingMetadata1802200000000,
 ];

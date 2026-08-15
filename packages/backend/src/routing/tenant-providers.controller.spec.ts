@@ -24,6 +24,7 @@ describe('TenantProvidersController', () => {
       provider: 'openai',
       auth_type: 'api_key',
       label,
+      subscription_plan: null,
       priority: 0,
       api_key_encrypted: 'encrypted-same-key',
       key_prefix: 'sk-test',

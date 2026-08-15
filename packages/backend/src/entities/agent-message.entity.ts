@@ -89,6 +89,10 @@ export class AgentMessage {
   @Column('varchar', { nullable: true })
   api_pricing_model_id!: string | null;
 
+  /** Whether pricing was captured at event time or recalculated later using current rates. */
+  @Column('varchar', { nullable: true })
+  api_pricing_basis!: 'event_snapshot' | 'current_backfill' | null;
+
   @Column('varchar', { default: 'pending' })
   status!: string;
 

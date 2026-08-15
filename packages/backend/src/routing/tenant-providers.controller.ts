@@ -55,6 +55,7 @@ export class TenantProvidersController {
           models_fetched_at: string | null;
           cached_model_count: number;
           is_active: boolean;
+          subscription_plan: string | null;
         }>;
         total_models: number;
       }
@@ -75,6 +76,7 @@ export class TenantProvidersController {
           models_fetched_at: p.models_fetched_at,
           cached_model_count: modelCount,
           is_active: p.is_active,
+          subscription_plan: p.subscription_plan,
         });
         existing.total_models = Math.max(existing.total_models, modelCount);
       } else {
@@ -91,6 +93,7 @@ export class TenantProvidersController {
               models_fetched_at: p.models_fetched_at,
               cached_model_count: modelCount,
               is_active: p.is_active,
+              subscription_plan: p.subscription_plan,
             },
           ],
           total_models: modelCount,

@@ -33,6 +33,10 @@ export class TenantProvider {
   @Column('varchar', { default: 'Default' })
   label!: string;
 
+  /** Provider-reported subscription tier (for example ChatGPT Plus), when available. */
+  @Column('varchar', { nullable: true, default: null })
+  subscription_plan!: string | null;
+
   @Column('integer', { default: 0 })
   priority!: number;
 

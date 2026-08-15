@@ -11,6 +11,7 @@ export interface TenantProviderConnection {
   models_fetched_at: string | null;
   cached_model_count: number;
   is_active: boolean;
+  subscription_plan: string | null;
 }
 
 /**
@@ -42,6 +43,8 @@ export interface TenantProviderUsage {
   consumption_tokens: number;
   consumption_messages: number;
   consumption_cost: number;
+  api_equivalent_cost: number;
+  estimated_api_savings: number;
   /** Every provider call over the last 30 days, at THIS row's grain. */
   attempts_30d: number;
   /** Attempts that returned success over the last 30 days. */
@@ -136,6 +139,8 @@ const USAGE_ZERO: Omit<TenantProviderUsage, 'provider' | 'auth_type'> = {
   consumption_tokens: 0,
   consumption_messages: 0,
   consumption_cost: 0,
+  api_equivalent_cost: 0,
+  estimated_api_savings: 0,
   attempts_30d: 0,
   succeeded_30d: 0,
   last_used_at: null,
@@ -223,6 +228,8 @@ export function mergeUsage(
       consumption_tokens: rows.length ? sum((u) => u.consumption_tokens) : 0,
       consumption_messages: rows.length ? sum((u) => u.consumption_messages) : 0,
       consumption_cost: rows.length ? sum((u) => u.consumption_cost) : 0,
+      api_equivalent_cost: rows.length ? sum((u) => u.api_equivalent_cost) : 0,
+      estimated_api_savings: rows.length ? sum((u) => u.estimated_api_savings) : 0,
       attempts_30d: rows.length ? sum((u) => u.attempts_30d) : 0,
       succeeded_30d: rows.length ? sum((u) => u.succeeded_30d) : 0,
       last_used_at: lastUsed ?? null,

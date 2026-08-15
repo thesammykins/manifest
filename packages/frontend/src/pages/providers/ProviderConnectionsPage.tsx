@@ -68,8 +68,7 @@ const PAGE_COPY: Record<
     connectedHeading: string;
     supportedHeading: string;
     authType: AuthType;
-    /** Cost metric (stat card + per-row column) — BYOK only. Subscriptions and
-     *  local providers have no real cost figure to show. */
+    /** Monetary usage comparison shown in the stat card and per-row column. */
     metricLabel?: string;
     metricTooltip?: string;
     rowMetricHeading?: string;
@@ -85,6 +84,10 @@ const PAGE_COPY: Record<
     connectedHeading: 'My subscription connections',
     supportedHeading: 'Supported subscription providers',
     authType: 'subscription',
+    metricLabel: 'Estimated API savings (30d)',
+    metricTooltip:
+      'What the same token usage would cost at current API rates, minus provider-reported per-request charges. Recurring plan fees are not included.',
+    rowMetricHeading: 'API savings (30d)',
     activeSingular: 'connection',
     activePlural: 'connections',
   },
@@ -397,8 +400,13 @@ const ProviderConnectionsPage: Component<ProviderConnectionsPageProps> = (props)
       .get(providerId)
       ?.connections.filter((connection) => connection.is_active).length ?? 0;
 
-  const totalApiCost = createMemo(() =>
-    connectedSummaries().reduce((sum, summary) => sum + summary.consumption_cost, 0),
+  const totalDisplayedCost = createMemo(() =>
+    connectedSummaries().reduce(
+      (sum, summary) =>
+        sum +
+        (props.kind === 'subscriptions' ? summary.estimated_api_savings : summary.consumption_cost),
+      0,
+    ),
   );
 
   // Attempt-world totals for the header cards: summed over THIS page's rows
@@ -437,8 +445,11 @@ const ProviderConnectionsPage: Component<ProviderConnectionsPageProps> = (props)
     summary: TenantProviderSummary,
     connection: { label?: string | null },
   ) =>
-    usageForConnection(summary, connection)?.consumption_cost ??
-    summary.consumption_cost / connectionDenominator(summary);
+    props.kind === 'subscriptions'
+      ? (usageForConnection(summary, connection)?.estimated_api_savings ??
+        summary.estimated_api_savings / connectionDenominator(summary))
+      : (usageForConnection(summary, connection)?.consumption_cost ??
+        summary.consumption_cost / connectionDenominator(summary));
 
   const connectionLastUsedAt = (
     summary: TenantProviderSummary,
@@ -448,7 +459,7 @@ const ProviderConnectionsPage: Component<ProviderConnectionsPageProps> = (props)
     (summary.connections.length === 1 ? summary.last_used_at : null);
 
   const showMetricCard = () =>
-    !!copy().metricLabel && (connectedRows().length > 0 || totalApiCost() > 0);
+    !!copy().metricLabel && (connectedRows().length > 0 || totalDisplayedCost() > 0);
 
   const activeLabel = (count: number) => {
     if (props.kind === 'local') return 'Connected';
@@ -539,11 +550,16 @@ const ProviderConnectionsPage: Component<ProviderConnectionsPageProps> = (props)
         >
           <Show when={showMetricCard()}>
             <div class="overview-stat-card">
-              <span class="overview-stat-card__label">Total API cost (30d)</span>
+              <span class="overview-stat-card__label">
+                {copy().metricLabel}
+                <Show when={copy().metricTooltip}>
+                  <InfoTooltip text={copy().metricTooltip!} />
+                </Show>
+              </span>
               <div class="overview-stat-card__value-row">
                 <Show when={!usageLoading()} fallback={<UsageShimmer width={72} />}>
                   <span class="overview-stat-card__value">
-                    {formatCost(totalApiCost()) ?? '$0.00'}
+                    {formatCost(totalDisplayedCost()) ?? '$0.00'}
                   </span>
                 </Show>
               </div>
@@ -642,7 +658,14 @@ const ProviderConnectionsPage: Component<ProviderConnectionsPageProps> = (props)
                             style="display: inline-flex; align-items: center; gap: 6px; cursor: default;"
                             class="connection-label-cell"
                           >
-                            {row.connection.label}
+                            <span style="display: inline-flex; flex-direction: column; gap: 2px;">
+                              <span>{row.connection.label}</span>
+                              <Show when={row.connection.subscription_plan}>
+                                <span style="font-size: var(--font-size-xs); color: hsl(var(--muted-foreground)); text-transform: capitalize;">
+                                  ChatGPT {row.connection.subscription_plan}
+                                </span>
+                              </Show>
+                            </span>
                             <button
                               type="button"
                               class="connection-label-cell__edit"

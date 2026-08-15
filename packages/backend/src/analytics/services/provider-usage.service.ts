@@ -25,6 +25,10 @@ export interface ProviderUsageSummary {
   consumption_messages: number;
   /** Summed cost (USD) over the last 30 days. Raw numeric sum, not rounded per-row. */
   consumption_cost: number;
+  /** Same token usage valued at API rates; populated for subscription rows. */
+  api_equivalent_cost: number;
+  /** API-equivalent cost minus the provider-reported per-request cost. */
+  estimated_api_savings: number;
   /** Every provider call over the last 30 days (retries and fallbacks included). */
   attempts_30d: number;
   /** Attempts that returned success over the last 30 days. */
@@ -49,6 +53,8 @@ interface DailyBucketRow {
   day: string;
   tokens: string | number | null;
   cost: string | number | null;
+  api_equivalent_cost: string | number | null;
+  estimated_api_savings: string | number | null;
   messages: string | number | null;
   attempts: string | number | null;
   succeeded: string | number | null;
@@ -110,6 +116,11 @@ export class ProviderUsageService {
       // Sum the RAW numeric cost (not a pre-rounded per-row value) so totals stay
       // precise; rounding for display happens client-side.
       .addSelect('SUM(COALESCE(at.cost_usd, 0))', 'cost')
+      .addSelect('SUM(COALESCE(at.api_equivalent_cost_usd, 0))', 'api_equivalent_cost')
+      .addSelect(
+        'SUM(GREATEST(COALESCE(at.api_equivalent_cost_usd, 0) - COALESCE(at.cost_usd, 0), 0))',
+        'estimated_api_savings',
+      )
       .addSelect(sqlCountMessages(), 'messages')
       // Attempt-world reliability at the SAME grain as this row (provider +
       // auth_type): the connection lists must not blend a subscription's
@@ -137,6 +148,8 @@ export class ProviderUsageService {
       tokens: number;
       messages: number;
       cost: number;
+      apiEquivalentCost: number;
+      estimatedApiSavings: number;
       attempts: number;
       succeeded: number;
       lastUsed: number | null;
@@ -162,6 +175,8 @@ export class ProviderUsageService {
           tokens: 0,
           messages: 0,
           cost: 0,
+          apiEquivalentCost: 0,
+          estimatedApiSavings: 0,
           attempts: 0,
           succeeded: 0,
           lastUsed: null,
@@ -174,6 +189,8 @@ export class ProviderUsageService {
       acc.tokens += tokens;
       acc.messages += Number(row.messages) || 0;
       acc.cost += Number(row.cost) || 0;
+      acc.apiEquivalentCost += Number(row.api_equivalent_cost) || 0;
+      acc.estimatedApiSavings += Number(row.estimated_api_savings) || 0;
       acc.attempts += Number(row.attempts) || 0;
       acc.succeeded += Number(row.succeeded) || 0;
 
@@ -200,6 +217,8 @@ export class ProviderUsageService {
       consumption_tokens: acc.tokens,
       consumption_messages: acc.messages,
       consumption_cost: acc.cost,
+      api_equivalent_cost: acc.apiEquivalentCost,
+      estimated_api_savings: acc.estimatedApiSavings,
       attempts_30d: acc.attempts,
       succeeded_30d: acc.succeeded,
       last_used_at: acc.lastUsed === null ? null : new Date(acc.lastUsed).toISOString(),

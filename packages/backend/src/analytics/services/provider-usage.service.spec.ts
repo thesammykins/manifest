@@ -92,6 +92,8 @@ describe('ProviderUsageService', () => {
         day: today,
         tokens: '100',
         cost: '0.30',
+        api_equivalent_cost: '0.60',
+        estimated_api_savings: '0.30',
         messages: '3',
         last_used_at: new Date('2026-06-16T10:00:00.000Z'),
       },
@@ -101,6 +103,8 @@ describe('ProviderUsageService', () => {
         day: yesterday,
         tokens: '50',
         cost: '0.10',
+        api_equivalent_cost: '0.25',
+        estimated_api_savings: '0.15',
         messages: '2',
         last_used_at: new Date('2026-06-15T10:00:00.000Z'),
       },
@@ -110,6 +114,8 @@ describe('ProviderUsageService', () => {
         day: tenDaysAgo,
         tokens: '7',
         cost: '0.01',
+        api_equivalent_cost: '0.05',
+        estimated_api_savings: '0.04',
         messages: '1',
         last_used_at: new Date('2026-06-06T10:00:00.000Z'),
       },
@@ -123,6 +129,8 @@ describe('ProviderUsageService', () => {
     expect(summary.consumption_tokens).toBe(157);
     expect(summary.consumption_messages).toBe(6);
     expect(summary.consumption_cost).toBeCloseTo(0.41, 10);
+    expect(summary.api_equivalent_cost).toBeCloseTo(0.9, 10);
+    expect(summary.estimated_api_savings).toBeCloseTo(0.49, 10);
     // last_used_at is the max timestamp in the window.
     expect(summary.last_used_at).toBe('2026-06-16T10:00:00.000Z');
     // Dense, 7 long, zero-filled. Today/yesterday carry tokens; the day-10

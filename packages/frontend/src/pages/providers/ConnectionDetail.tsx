@@ -92,6 +92,7 @@ interface ConnectionInfo {
   provider: string;
   auth_type: string;
   label: string;
+  subscription_plan: string | null;
   cached_model_count: number;
   key_prefix: string | null;
   connected_at: string;
@@ -744,6 +745,11 @@ const ConnectionDetail: Component = () => {
                         Custom
                       </span>
                     </Show>
+                    <Show when={c.subscription_plan}>
+                      <span style="display: inline-flex; align-items: center; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); font-size: var(--font-size-xs); font-weight: 600; text-transform: capitalize;">
+                        ChatGPT {c.subscription_plan}
+                      </span>
+                    </Show>
                     <Show
                       when={c.is_active}
                       fallback={
@@ -1324,7 +1330,9 @@ const ConnectionDetail: Component = () => {
                           <div style="padding: 12px 0; border-top: 1px solid hsl(var(--border)); font-size: var(--font-size-sm); color: hsl(var(--muted-foreground));">
                             Connected via{' '}
                             {c.auth_type === 'subscription'
-                              ? c.auth_type
+                              ? c.subscription_plan
+                                ? `ChatGPT ${c.subscription_plan} subscription`
+                                : c.auth_type
                               : c.auth_type === 'api_key'
                                 ? 'API key'
                                 : 'local server'}

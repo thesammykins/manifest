@@ -39,6 +39,10 @@ export class ModelPricingCacheService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ModelPricingCacheService.name);
   private readonly cache = new Map<string, PricingEntry>();
   private aliasMap = new Map<string, string>();
+  private resolveInitialized!: () => void;
+  private readonly initialized = new Promise<void>((resolve) => {
+    this.resolveInitialized = resolve;
+  });
 
   constructor(
     private readonly pricingSync: PricingSyncService,
@@ -71,7 +75,14 @@ export class ModelPricingCacheService implements OnApplicationBootstrap {
       await this.reload();
     } catch (err) {
       this.logger.error(`Pricing cache warmup failed: ${err}`);
+    } finally {
+      this.resolveInitialized();
     }
+  }
+
+  /** Resolves after the first pricing-cache warmup attempt has settled. */
+  whenInitialized(): Promise<void> {
+    return this.initialized;
   }
 
   /** Rebuild the pricing cache after sync services refresh their data. */
