@@ -1,4 +1,8 @@
-import { buildResponsesSseError } from './chatgpt-adapter';
+import {
+  buildResponsesSseError,
+  isReasoningDeltaEvent,
+  reasoningDeltaText,
+} from './chatgpt-adapter';
 import { isObjectRecord, safeParse } from './chatgpt-helpers';
 import { createSsePayloadParser, DEFAULT_MAX_SSE_BUFFER_SIZE } from './sse-parser';
 
@@ -16,9 +20,9 @@ interface ParsedEvent {
 }
 
 const encoder = new TextEncoder();
-// Allow quiet Codex reasoning beyond generic stream warm-up without delaying
-// fallback for the full provider request deadline when no output ever arrives.
-export const DEFAULT_CODEX_SEMANTIC_OUTPUT_TIMEOUT_MS = 60_000;
+// Match the downstream stream-idle policy. Active reasoning renews this window;
+// a silent or non-semantic stream still fails early enough to use a fallback.
+export const DEFAULT_CODEX_SEMANTIC_OUTPUT_TIMEOUT_MS = 180_000;
 const MAX_TIMER_MS = 2_147_483_647;
 
 export function parseCodexSemanticOutputTimeoutMs(
@@ -267,7 +271,7 @@ export async function qualifyChatGptResponse(
   const payloads: string[] = [];
   let bufferedSize = 0;
   let sawReasoningDelta = false;
-  const semanticOutputDeadline = performance.now() + timeoutMs;
+  let semanticIdleDeadline = performance.now() + timeoutMs;
 
   const processPayloads = async (newPayloads: string[]): Promise<Response | null> => {
     for (const payload of newPayloads) {
@@ -278,11 +282,9 @@ export async function qualifyChatGptResponse(
       if (isDeliverable(event)) {
         return responseWithBody(response, replayStream(reader, buffered));
       }
-      if (
-        event.type === 'response.reasoning_summary.delta' ||
-        event.type === 'response.reasoning_summary_text.delta'
-      ) {
+      if (isReasoningDeltaEvent(event.type) && reasoningDeltaText(event.data)) {
         sawReasoningDelta = true;
+        semanticIdleDeadline = performance.now() + timeoutMs;
       }
       if (event.type === 'error' || event.type === 'response.failed') {
         const error = buildResponsesSseError(event.data);
@@ -330,14 +332,14 @@ export async function qualifyChatGptResponse(
 
   try {
     while (true) {
-      const remainingMs = Math.max(0, semanticOutputDeadline - performance.now());
+      const remainingMs = Math.max(0, semanticIdleDeadline - performance.now());
       const read = await readWithTimeout(reader, remainingMs);
       if (!read) {
         await discard(reader);
         return errorResponse(
           response,
           504,
-          `ChatGPT Codex produced no text or tool output within ${timeoutMs}ms`,
+          `ChatGPT Codex produced no text, tool output, or reasoning progress for ${timeoutMs}ms`,
           'stream_timeout',
         );
       }

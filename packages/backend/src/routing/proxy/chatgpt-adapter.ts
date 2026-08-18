@@ -181,11 +181,11 @@ function reasoningContentFromOutput(output: Record<string, unknown>[]): string {
  * chain-of-thought events (`response.reasoning_text*`) never match — Manifest
  * only exposes summaries.
  */
-function isReasoningDeltaEvent(eventType: string): boolean {
+export function isReasoningDeltaEvent(eventType: string): boolean {
   return eventType.startsWith('response.reasoning_summary') && eventType.endsWith('.delta');
 }
 
-function reasoningDeltaText(data: Record<string, unknown>): string {
+export function reasoningDeltaText(data: Record<string, unknown>): string {
   if (typeof data.delta === 'string') return data.delta;
   // Tolerate payloads that nest the text ({"delta":{"text":"..."}}).
   if (isObjectRecord(data.delta) && typeof data.delta.text === 'string') return data.delta.text;

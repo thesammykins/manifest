@@ -393,16 +393,15 @@ describe('qualifyChatGptResponse', () => {
     expect(response.status).toBe(504);
   });
 
-  it('applies the semantic-output timeout across non-deliverable chunks', async () => {
+  it('keeps waiting while reasoning summaries show active model progress', async () => {
     jest.useFakeTimers();
     try {
       const encoder = new TextEncoder();
-      const reasoning = event('response.reasoning_summary.delta', { delta: 'Still thinking' });
+      let controller: ReadableStreamDefaultController<Uint8Array>;
       const source = new Response(
         new ReadableStream<Uint8Array>({
-          async pull(controller) {
-            await new Promise((resolve) => setTimeout(resolve, 4));
-            controller.enqueue(encoder.encode(reasoning));
+          start(streamController) {
+            controller = streamController;
           },
         }),
         { status: 200 },
@@ -412,7 +411,46 @@ describe('qualifyChatGptResponse', () => {
         downstreamFormat: 'chat-completions',
         timeoutMs: 10,
       });
-      await jest.advanceTimersByTimeAsync(10);
+
+      await jest.advanceTimersByTimeAsync(6);
+      controller!.enqueue(
+        encoder.encode(event('response.reasoning_summary_part.delta', { delta: 'Still thinking' })),
+      );
+      await jest.advanceTimersByTimeAsync(6);
+      controller!.enqueue(encoder.encode(event('response.output_text.delta', { delta: 'Done' })));
+      controller!.close();
+
+      const response = await pending;
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toContain('Done');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not let non-progress events renew the semantic-output timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      let controller: ReadableStreamDefaultController<Uint8Array>;
+      const source = new Response(
+        new ReadableStream<Uint8Array>({
+          start(streamController) {
+            controller = streamController;
+          },
+        }),
+        { status: 200 },
+      );
+
+      const pending = qualifyChatGptResponse(source, {
+        downstreamFormat: 'chat-completions',
+        timeoutMs: 10,
+      });
+
+      await jest.advanceTimersByTimeAsync(6);
+      controller!.enqueue(
+        new TextEncoder().encode(event('response.created', { response: { id: 'resp_1' } })),
+      );
+      await jest.advanceTimersByTimeAsync(4);
 
       const response = await pending;
       expect(response.status).toBe(504);
