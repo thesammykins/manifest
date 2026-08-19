@@ -82,7 +82,7 @@ describe('ModelController', () => {
       getSpecs: jest.fn().mockResolvedValue([]),
     };
     mockModelsDevSync = {
-      lookupModel: jest.fn().mockReturnValue(null),
+      lookupModelCapabilities: jest.fn().mockReturnValue(null),
     };
     mockOpencodeGoCatalog = {
       resolveCostPerRequest: jest.fn().mockResolvedValue(null),
@@ -394,7 +394,7 @@ describe('ModelController', () => {
       mockDiscoveryService.getModelsForAgent.mockResolvedValue([
         makeDiscovered({ id: 'gpt-4o', provider: 'openai' }),
       ]);
-      mockModelsDevSync.lookupModel.mockReturnValue({
+      mockModelsDevSync.lookupModelCapabilities.mockReturnValue({
         capabilities: ['text', 'image', 'tools', 'stream'],
         inputModalities: ['text', 'image'],
         outputModalities: ['text', 'image'],
@@ -415,7 +415,7 @@ describe('ModelController', () => {
           authType: 'subscription',
         }),
       ]);
-      mockModelsDevSync.lookupModel.mockReturnValue({
+      mockModelsDevSync.lookupModelCapabilities.mockReturnValue({
         capabilities: ['text', 'tools', 'stream'],
       });
 
@@ -423,7 +423,7 @@ describe('ModelController', () => {
 
       // The gateway prefix is stripped and the provider inferred from the
       // underlying id, so models.dev is queried as the real provider.
-      expect(mockModelsDevSync.lookupModel).toHaveBeenCalledWith('zai', 'glm-5.1');
+      expect(mockModelsDevSync.lookupModelCapabilities).toHaveBeenCalledWith('zai', 'glm-5.1');
       expect(result[0].capabilities).toEqual(['text', 'tools', 'stream']);
     });
 
@@ -440,7 +440,7 @@ describe('ModelController', () => {
 
       // Unknown underlying ids keep the gateway provider rather than passing
       // `undefined`.
-      expect(mockModelsDevSync.lookupModel).toHaveBeenCalledWith(
+      expect(mockModelsDevSync.lookupModelCapabilities).toHaveBeenCalledWith(
         'opencode-go',
         'unknown-route-model',
       );
@@ -464,13 +464,16 @@ describe('ModelController', () => {
           displayName: 'mistral.magistral-small-2509',
         }),
       ]);
-      mockModelsDevSync.lookupModel.mockReturnValue({
+      mockModelsDevSync.lookupModelCapabilities.mockReturnValue({
         name: 'Magistral Small',
       });
 
       const result = await controller.getAvailableModels(mockCtx, mockAgentName);
 
-      expect(mockModelsDevSync.lookupModel).toHaveBeenCalledWith('mistral', 'magistral-small-2509');
+      expect(mockModelsDevSync.lookupModelCapabilities).toHaveBeenCalledWith(
+        'mistral',
+        'magistral-small-2509',
+      );
       expect(result[0].model_name).toBe('mistral.magistral-small-2509');
       expect(result[0].display_name).toBe('Magistral Small');
     });
