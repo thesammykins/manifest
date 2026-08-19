@@ -38,6 +38,8 @@ describe('ProviderUsageController', () => {
         attempts_30d: 10,
         succeeded_30d: 9,
         consumption_cost: 0.25,
+        api_equivalent_cost: 0.25,
+        estimated_api_savings: 0,
         last_used_at: '2026-06-16T10:00:00.000Z',
         sparkline_7d: [0, 0, 0, 0, 0, 0, 100],
       },
