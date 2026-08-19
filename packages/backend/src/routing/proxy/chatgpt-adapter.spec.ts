@@ -567,6 +567,25 @@ describe('chatgpt-adapter', () => {
       expect(delta(out[0])).toEqual({});
     });
 
+    it('preserves boundaries between streamed reasoning summary parts', () => {
+      const transform = createChatGptStreamTransformer('gpt-5.6-luna');
+      const first = transform(
+        'event: response.reasoning_summary_text.delta\ndata: {"item_id":"rs_1","output_index":0,"summary_index":0,"delta":"Inspecting branch history "}',
+      );
+      const firstContinued = transform(
+        'event: response.reasoning_summary_text.delta\ndata: {"item_id":"rs_1","output_index":0,"summary_index":0,"delta":"and specs alignment"}',
+      );
+      const second = transform(
+        'event: response.reasoning_summary_text.delta\ndata: {"item_id":"rs_1","output_index":0,"summary_index":1,"delta":"Planning NZB command and upload limit implementation"}',
+      );
+
+      expect([first, firstContinued, second].flatMap(frames).map(delta)).toEqual([
+        { reasoning_content: 'Inspecting branch history ' },
+        { reasoning_content: 'and specs alignment' },
+        { reasoning_content: '\n\nPlanning NZB command and upload limit implementation' },
+      ]);
+    });
+
     it('backfills reasoning_content on response.incomplete', () => {
       const transform = createChatGptStreamTransformer('gpt-5.6-sol');
       const out = frames(
@@ -637,6 +656,21 @@ describe('chatgpt-adapter', () => {
 
       expect(message.content).toBe('Done.');
       expect(message.reasoning_content).toBe('I checked the constraints.');
+    });
+
+    it('preserves boundaries when collecting multiple reasoning summary parts', () => {
+      const sse = [
+        'event: response.reasoning_summary_text.delta\ndata: {"item_id":"rs_1","output_index":0,"summary_index":0,"delta":"Inspecting branch history "}',
+        'event: response.reasoning_summary_text.delta\ndata: {"item_id":"rs_1","output_index":0,"summary_index":0,"delta":"and specs alignment"}',
+        'event: response.reasoning_summary_text.delta\ndata: {"item_id":"rs_1","output_index":0,"summary_index":1,"delta":"Planning NZB command and upload limit implementation"}',
+      ].join('\n\n');
+      const out = collectChatGptSseResponse(sse, 'gpt-5.6-luna');
+      const choices = out.choices as Array<Record<string, unknown>>;
+      const message = choices[0].message as Record<string, unknown>;
+
+      expect(message.reasoning_content).toBe(
+        'Inspecting branch history and specs alignment\n\nPlanning NZB command and upload limit implementation',
+      );
     });
 
     it('uses completed reasoning output as the authoritative non-streaming summary', () => {

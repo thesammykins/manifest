@@ -192,9 +192,38 @@ export function reasoningDeltaText(data: Record<string, unknown>): string {
   return '';
 }
 
-/** Tracks whether reasoning summary text was already streamed to the client. */
+/** Responses summary indices are paragraph boundaries that Chat Completions cannot represent. */
 interface ReasoningStreamState {
   streamed: boolean;
+  summaryPartKey: string | null;
+}
+
+function reasoningSummaryPartKey(data: Record<string, unknown>): string | null {
+  if (typeof data.summary_index !== 'number') return null;
+
+  const itemKey =
+    typeof data.item_id === 'string' && data.item_id
+      ? `item:${data.item_id}`
+      : typeof data.output_index === 'number'
+        ? `output:${data.output_index}`
+        : null;
+  return itemKey ? `${itemKey}:summary:${data.summary_index}` : null;
+}
+
+function reasoningStreamDelta(data: Record<string, unknown>, state?: ReasoningStreamState): string {
+  const text = reasoningDeltaText(data);
+  if (!text || !state) return text;
+
+  const partKey = reasoningSummaryPartKey(data);
+  const startsNewPart =
+    state.streamed &&
+    partKey !== null &&
+    state.summaryPartKey !== null &&
+    partKey !== state.summaryPartKey;
+
+  state.streamed = true;
+  if (partKey) state.summaryPartKey = partKey;
+  return startsNewPart ? `\n\n${text}` : text;
 }
 
 /**
@@ -301,7 +330,7 @@ export function fromResponsesResponse(
  * summaries that never streamed as recognizable deltas.
  */
 export function createChatGptStreamTransformer(model: string): (chunk: string) => string | null {
-  const state: ReasoningStreamState = { streamed: false };
+  const state: ReasoningStreamState = { streamed: false, summaryPartKey: null };
   return (chunk) => transformResponsesStreamChunk(chunk, model, state);
 }
 
@@ -340,8 +369,7 @@ export function transformResponsesStreamChunk(
   if (isReasoningDeltaEvent(eventType)) {
     const data = safeParse(dataStr);
     if (!data) return null;
-    const text = reasoningDeltaText(data);
-    if (text && state) state.streamed = true;
+    const text = reasoningStreamDelta(data, state);
     return formatSSE({ delta: { reasoning_content: text }, finish_reason: null }, model);
   }
 
@@ -508,6 +536,7 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
   let hasFunctionCalls = false;
   let finishReasonOverride: string | undefined;
   let reasoningContent = '';
+  const reasoningState: ReasoningStreamState = { streamed: false, summaryPartKey: null };
 
   const events = sseText.split('\n\n');
   for (const event of events) {
@@ -528,7 +557,7 @@ export function collectChatGptSseResponse(sseText: string, model: string): Recor
     } else if (eventType === 'response.output_text.delta') {
       text += typeof data.delta === 'string' ? data.delta : '';
     } else if (isReasoningDeltaEvent(eventType)) {
-      reasoningContent += reasoningDeltaText(data);
+      reasoningContent += reasoningStreamDelta(data, reasoningState);
     } else if (eventType === 'response.output_item.added') {
       const item = isObjectRecord(data.item) ? data.item : undefined;
       if (item?.type === 'function_call') {
